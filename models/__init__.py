@@ -15,11 +15,13 @@ from models.base_model import BaseModel
 from models.baseline import BaselineModel
 from models.fap import FAPModel
 from models.lwso import LWSOModel
+from models.star import StarModel
 
 MODEL_REGISTRY: dict[str, type[BaseModel]] = {
     "baseline": BaselineModel,
     "lwso": LWSOModel,
     "fap": FAPModel,
+    "star": StarModel,
 }
 
 
@@ -31,4 +33,7 @@ def build_model(idea: str, cfg) -> BaseModel:
     return MODEL_REGISTRY[key](cfg)
 
 
-__all__ = ["MODEL_REGISTRY", "build_model", "BaseModel", "BaselineModel", "LWSOModel", "FAPModel"]
+__all__ = [
+    "MODEL_REGISTRY", "build_model", "BaseModel", "BaselineModel", "LWSOModel", "FAPModel",
+    "StarModel",
+]

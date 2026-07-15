@@ -17,6 +17,7 @@ Model options (--model, override cfg.model_cfg của configs/<idea>.yaml):
     cfg/lwso-yolo11n-lite.yaml          LWSO cắt compute mạnh: 1.12M, 12.8 GFLOPs@640   (idea lwso)
     cfg/lwso-yolo11n-eff.yaml           LWSO đề xuất: 0.96M, 12.4 GFLOPs@640, +ECA ở P2 (idea lwso)
     cfg/lwso-yolo11s.yaml               bản s — teacher cho knowledge distillation      (idea lwso)
+    cfg/star-yolo11n.yaml               StarBlock+GSConv+SimAM+WIoU: 0.65M, 7.6 GFLOPs@640  (idea star)
 
 Examples:
     # baseline (configs/baseline.yaml: YOLO11n gốc, finetune COCO, không NWD)
@@ -24,6 +25,9 @@ Examples:
 
     # full LWSO model @960 với NWD blend loss (configs/lwso.yaml)
     python train.py --idea lwso
+
+    # StarBlock+GSConv slim-neck+SimAM+Wise-IoU v3 (configs/star.yaml)
+    python train.py --idea star
 
     # 1 trong các model option khác (xem bảng trên), vẫn cùng idea/recipe:
     python train.py --idea lwso --model cfg/lwso-yolo11n-eff.yaml --name lwso-n-eff

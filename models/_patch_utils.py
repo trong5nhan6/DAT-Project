@@ -46,7 +46,7 @@ def patch_ddp_registration() -> None:
 
     Fix, in the same "patch without forking ultralytics" spirit as register_lwso()/
     register_fap(): wrap generate_ddp_file so the generated temp file also runs our
-    registration first. Always registers both lwso and fap (idempotent, harmless for
+    registration first. Always registers lwso/fap/star (idempotent, harmless for
     --idea baseline / any stock model_cfg) since we don't know here which idea is
     active. Idempotent at the process level too (safe to call from every
     BaseModel.train(), which is where this gets called from).
@@ -63,8 +63,10 @@ def patch_ddp_registration() -> None:
         f"    sys.path.insert(0, {str(REPO_ROOT)!r})\n"
         "    from models.fap.register import register_fap\n"
         "    from models.lwso.register import register_lwso\n"
+        "    from models.star.register import register_star\n"
         "    register_lwso()\n"
         "    register_fap()\n"
+        "    register_star()\n"
     )
 
     def generate_ddp_file_with_registration(trainer):

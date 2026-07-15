@@ -1,0 +1,7 @@
+# Idea: star — StarNet backbone (C3k2Star) + GSConv slim-neck (VoVGSCSP) + SimAM attention
+# + Wise-IoU v3 loss. Không có toggle NWD/CIoU như lwso — WIoU luôn bật cho idea này (xem
+# models/star/losses.py); use_nwd giữ false vì đây là 2 cơ chế loss khác nhau, không blend.
+idea: star
+model_cfg: cfg/star-yolo11n.yaml
+use_nwd: false
+name: star-n
