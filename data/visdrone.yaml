@@ -1,0 +1,18 @@
+# VisDrone2019-DET, 10 classes (ignored-regions & others removed by the converter).
+# Generate with:  python data/scripts/convert_visdrone.py --src <download dir> --mask-ignored
+path: D:/claude/light weight/yolov11-visdrone/datasets/VisDrone # edit if you moved the dataset
+train: images/train # VisDrone2019-DET-train,    6471 images
+val: images/val # VisDrone2019-DET-val,       548 images
+test: images/test # VisDrone2019-DET-test-dev, 1610 images
+
+names:
+  0: pedestrian
+  1: people
+  2: bicycle
+  3: car
+  4: van
+  5: truck
+  6: tricycle
+  7: awning-tricycle
+  8: bus
+  9: motor

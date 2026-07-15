@@ -1,0 +1,36 @@
+# Ablation step 1: stock YOLO11n with P2 head added and P5 stage removed.
+# Uses only stock ultralytics modules -> runs WITHOUT register_lwso().
+# Isolates the effect of "+P2 / -P5" before any custom module is introduced.
+
+nc: 10 # VisDrone classes
+
+scales: # [depth, width, max_channels]
+  n: [1.00, 1.00, 1024]
+
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [16, 3, 2]] # 0  P1/2
+  - [-1, 1, Conv, [32, 3, 2]] # 1  P2/4
+  - [-1, 2, C3k2, [64, False, 0.25]] # 2
+  - [-1, 1, Conv, [64, 3, 2]] # 3  P3/8
+  - [-1, 2, C3k2, [128, False, 0.25]] # 4
+  - [-1, 1, Conv, [128, 3, 2]] # 5  P4/16
+  - [-1, 2, C3k2, [128, True]] # 6
+  - [-1, 1, SPPF, [128, 5]] # 7
+  - [-1, 1, C2PSA, [128]] # 8
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 9
+  - [[-1, 4], 1, Concat, [1]] # 10 128+128=256
+  - [-1, 2, C3k2, [128, False]] # 11 P3 intermediate
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 12
+  - [[-1, 2], 1, Concat, [1]] # 13 128+64=192
+  - [-1, 2, C3k2, [64, False]] # 14 P2/4 out
+  - [-1, 1, Conv, [64, 3, 2]] # 15
+  - [[-1, 11], 1, Concat, [1]] # 16 64+128=192
+  - [-1, 2, C3k2, [128, False]] # 17 P3/8 out
+  - [-1, 1, Conv, [128, 3, 2]] # 18
+  - [[-1, 8], 1, Concat, [1]] # 19 128+128=256
+  - [-1, 2, C3k2, [128, True]] # 20 P4/16 out
+
+  - [[14, 17, 20], 1, Detect, [nc]] # 21 Detect(P2, P3, P4)

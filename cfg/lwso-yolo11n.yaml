@@ -1,0 +1,46 @@
+# LWSO-YOLO11 — LightWeight Small-Object YOLO for VisDrone2019
+# Base: YOLO11n. Changes vs stock:
+#   * P5 stage removed, P2 (stride-4) detect head added -> detect heads at P2/P3/P4
+#   * all stride-2 convs replaced by SPDConv (lossless space-to-depth downsampling)
+#   * C3k2 -> C3k2Ghost (GhostBottleneck inner blocks)
+#   * EMA attention on P3; C2PSA kept on P4
+#   * neck: BiFPN-style weighted fusion (BiFPNCat) + DySample learned upsampling
+# Requires lwso.register_lwso() before YOLO(<this file>).
+# Scale is taken from the filename suffix (11n / 11s); the -s copy is the KD teacher.
+
+nc: 10 # VisDrone classes
+
+scales: # [depth, width, max_channels]
+  n: [1.00, 1.00, 1024] # channels below are written for the n scale
+  s: [1.33, 1.50, 1024] # teacher for knowledge distillation
+
+backbone:
+  # [from, repeats, module, args]                    (shapes @ 960x960 input, n scale)
+  - [-1, 1, Conv, [16, 3, 2]] # 0  P1/2   16x480x480
+  - [-1, 1, SPDConv, [32]] # 1  P2/4   32x240x240
+  - [-1, 2, C3k2Ghost, [64, False, 0.25]] # 2         64x240x240
+  - [-1, 1, SPDConv, [64]] # 3  P3/8   64x120x120
+  - [-1, 2, C3k2Ghost, [128, False, 0.25]] # 4        128x120x120
+  - [-1, 1, EMA, [128]] # 5         128x120x120
+  - [-1, 1, SPDConv, [128]] # 6  P4/16  128x60x60
+  - [-1, 2, C3k2Ghost, [128, True]] # 7               128x60x60
+  - [-1, 1, SPPF, [128, 5]] # 8               128x60x60
+  - [-1, 1, C2PSA, [128]] # 9               128x60x60
+
+head:
+  # top-down
+  - [-1, 1, DySample, [128, 2]] # 10 P4 -> P3 size
+  - [[-1, 5], 1, BiFPNCat, [2]] # 11 128+128=256
+  - [-1, 1, C3k2Ghost, [128, False]] # 12 P3 intermediate
+  - [-1, 1, DySample, [128, 2]] # 13 P3 -> P2 size
+  - [[-1, 2], 1, BiFPNCat, [2]] # 14 128+64=192
+  - [-1, 1, C3k2Ghost, [64, False]] # 15 P2/4 out (64x240x240)
+  # bottom-up
+  - [-1, 1, SPDConv, [128]] # 16 P2 -> P3 size
+  - [[-1, 12], 1, BiFPNCat, [2]] # 17 128+128=256
+  - [-1, 1, C3k2Ghost, [128, False]] # 18 P3/8 out
+  - [-1, 1, SPDConv, [128]] # 19 P3 -> P4 size
+  - [[-1, 9], 1, BiFPNCat, [2]] # 20 128+128=256
+  - [-1, 1, C3k2Ghost, [128, True]] # 21 P4/16 out
+
+  - [[15, 18, 21], 1, Detect, [nc]] # 22 Detect(P2, P3, P4)

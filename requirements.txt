@@ -1,0 +1,12 @@
+# register.py patches ultralytics parse_model textually -> keep the 8.3.x pin.
+# Developed/tested against ultralytics 8.3.253.
+ultralytics>=8.3,<8.4
+torch>=2.0
+opencv-python>=4.6
+pillow
+pytest
+
+# stage-3 compression (M6) — uncomment when you reach it
+# torch-pruning>=1.4
+# onnx
+# onnxruntime
