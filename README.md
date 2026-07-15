@@ -99,7 +99,8 @@ python train.py --config configs/lwso.yaml --epochs 50         # trỏ thẳng 1
 
 ### Thêm idea mới
 
-Hiện có 2 idea: `baseline` (YOLO11n gốc) và `lwso` (full LWSO model). Thêm 1 idea, 3 bước,
+Hiện có 3 idea: `baseline` (YOLO11n gốc), `lwso` (full LWSO model), `fap` (FreqMix + P2, xem mục
+riêng bên dưới). Thêm 1 idea, 3 bước,
 **không cần sửa `train.py`**:
 
 1. Tạo `models/<tên>.py` (hoặc `models/<tên>/` nếu nhiều file như `lwso/`) định nghĩa 1 class
@@ -154,6 +155,26 @@ train thật trên GPU (Kaggle) theo ladder M1-M6 của paper để so sánh.
   để model không bị phạt oan khi có object thật trong đó.
 - **Anaconda trên Windows**: nếu gặp `OMP Error #15 (libiomp5md.dll)`, các script đã tự set
   `KMP_DUPLICATE_LIB_OK=TRUE`; fix triệt để là dùng venv/conda env riêng thay vì base env.
+- **Log khi train**: mặc định chỉ in ra console (stdout), không có file log riêng — muốn giữ
+  lại thì tự redirect (`python train.py ... | tee console.log`). **Ngoại lệ**: nếu bật
+  `--test-every N` (mặc định 20), mỗi lần trigger sẽ ghi thêm `runs/detect/<name>/train.log`
+  (text: mAP test-set + bảng efficiency — params/GFLOPs/model size/latency/FPS, đo bằng
+  forward pass thật trên `trainer.device`) và `runs/detect/<name>/test_metrics.csv`
+  (`epoch,mAP50,mAP50-95,params_m,gflops,model_size_mb,latency_ms,fps`) — cả 2 file này chỉ
+  xuất hiện sau lần trigger đầu tiên, không phải ngay lúc train bắt đầu.
+- **Seed**: `configs/base.yaml` set `seed: 42` (`deterministic: True` là default có sẵn của
+  ultralytics, project không đổi). Override qua `--seed <n>` nếu cần chạy nhiều seed khác
+  nhau để lấy mean±std.
+- **Multi-GPU (`--device 0,1`)**: đã hỗ trợ cho mọi idea (kể cả `lwso`/`fap` có module custom).
+  Lý do cần patch riêng: ultralytics chạy multi-GPU bằng cách spawn **process con hoàn toàn
+  mới** (`torch.distributed.run`) từ 1 file `.py` tạm tự sinh ra — process đó không import gì
+  từ project này nên `register_lwso()`/`register_fap()` (patch `parse_model` để nhận diện
+  `SPDConv`/`FreqMix`...) không tự chạy trong đó, sẽ crash ngay khi build model. `models/
+  _patch_utils.py:patch_ddp_registration()` vá thêm bước đăng ký vào chính file tạm đó
+  (được `BaseModel.train()` tự gọi, không cần làm gì thêm) — cùng tinh thần "không fork
+  ultralytics" như `register_lwso()`. Đã verify: mô phỏng process con hoàn toàn mới build
+  đúng cả `lwso`/`fap` sau khi patch. **Chưa verify được training DDP thật** (máy dev không có
+  multi-GPU) — nếu gặp lỗi trên Kaggle/Colab T4x2, báo lại để debug tiếp.
 
 ## Lộ trình (đã bàn ở thiết kế)
 

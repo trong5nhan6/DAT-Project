@@ -97,6 +97,7 @@ def main():
     ap.add_argument("--mixup", type=float, default=None)
     ap.add_argument("--patience", type=int, default=None)
     ap.add_argument("--resume", action="store_true", default=None)
+    ap.add_argument("--seed", type=int, default=None, help="random seed (reproducibility)")
     ap.add_argument("--test-every", type=int, default=None, dest="test_every",
                      help="also val on the test-dev split every N epochs (monitoring only; "
                           "0 disables). Adds one extra full test-set pass per trigger, on top "
@@ -115,7 +116,7 @@ def main():
         "epochs": args.epochs, "batch": args.batch, "device": args.device,
         "name": args.name, "weights": args.weights, "multi_scale": args.multi_scale,
         "close_mosaic": args.close_mosaic, "mixup": args.mixup, "patience": args.patience,
-        "resume": args.resume, "test_every": args.test_every,
+        "resume": args.resume, "seed": args.seed, "test_every": args.test_every,
         "nwd_ratio": args.nwd_ratio, "nwd_constant": args.nwd_constant,
     }
     for k, v in overrides.items():
@@ -141,6 +142,7 @@ def main():
         multi_scale=bool(cfg.multi_scale),
         patience=int(cfg.patience),
         resume=bool(cfg.resume),
+        seed=int(cfg.seed),
         cos_lr=True,
         plots=True,
     )

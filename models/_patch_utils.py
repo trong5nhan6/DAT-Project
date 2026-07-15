@@ -23,6 +23,64 @@ Two problems this solves:
 
 import ast
 import inspect
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def patch_ddp_registration() -> None:
+    """Make ultralytics' multi-GPU (DDP, e.g. device="0,1") subprocess spawn also
+    register our custom modules before it builds a model -- otherwise multi-GPU
+    training crashes for any idea whose model_cfg references SPDConv/FreqMix/etc.
+
+    Why: `device="0,1"` makes ultralytics' BaseTrainer.train() call
+    generate_ddp_command() -> generate_ddp_file(), which writes a *brand-new* temp
+    .py file executed by a fresh `torch.distributed.run` subprocess per GPU. That
+    file only imports `ultralytics.models.yolo.detect.train.DetectionTrainer` and
+    builds a trainer from `overrides["model"]` (a path string like
+    "cfg/lwso-yolo11n.yaml") -- it never imports this project's code, so
+    register_lwso()/register_fap()'s runtime monkeypatch of
+    ultralytics.nn.tasks.parse_model (needed to recognize our custom module names)
+    never happens in that subprocess, and parse_model() raises the moment it hits
+    an unrecognized module name.
+
+    Fix, in the same "patch without forking ultralytics" spirit as register_lwso()/
+    register_fap(): wrap generate_ddp_file so the generated temp file also runs our
+    registration first. Always registers both lwso and fap (idempotent, harmless for
+    --idea baseline / any stock model_cfg) since we don't know here which idea is
+    active. Idempotent at the process level too (safe to call from every
+    BaseModel.train(), which is where this gets called from).
+    """
+    import ultralytics.utils.dist as dist_mod
+
+    if getattr(dist_mod, "_lwso_ddp_patched", False):
+        return
+
+    original_generate_ddp_file = dist_mod.generate_ddp_file
+    marker = 'if __name__ == "__main__":\n'
+    injection = (
+        "    import sys\n"
+        f"    sys.path.insert(0, {str(REPO_ROOT)!r})\n"
+        "    from models.fap.register import register_fap\n"
+        "    from models.lwso.register import register_lwso\n"
+        "    register_lwso()\n"
+        "    register_fap()\n"
+    )
+
+    def generate_ddp_file_with_registration(trainer):
+        path = original_generate_ddp_file(trainer)
+        content = Path(path).read_text(encoding="utf-8")
+        if marker not in content:
+            raise RuntimeError(
+                "patch_ddp_registration: generate_ddp_file template changed "
+                "(marker not found) -- ultralytics version incompatible."
+            )
+        content = content.replace(marker, marker + injection, 1)
+        Path(path).write_text(content, encoding="utf-8")
+        return path
+
+    dist_mod.generate_ddp_file = generate_ddp_file_with_registration
+    dist_mod._lwso_ddp_patched = True
 
 
 def get_pristine_function_source(module, func_name: str) -> str:

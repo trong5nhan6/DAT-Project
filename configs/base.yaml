@@ -24,6 +24,7 @@ close_mosaic: 15
 mixup: 0.1
 patience: 50
 resume: false
+seed: 42 # cố định để reproducible; trước đây ngầm dùng default 0 của ultralytics
 
 # ── Output ───────────────────────────────────────────────────────────────────
 name: exp # run name dưới runs/detect/<name>/
