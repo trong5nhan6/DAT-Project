@@ -18,9 +18,11 @@ models/                 mỗi idea = 1 module riêng, chọn qua --idea (xem "Th
     register.py              patch parse_model của ultralytics (pin 8.3.x)
     losses.py                 NWD blend loss (thay BboxLoss)
   fap/                    idea "fap": FreqMix downsampling (từ paper FAP-YOLO12n)
-    model.py               FAPModel: gọi register_fap() rồi build YOLO (không NWD)
+    model.py               FAPModel: gọi register_fap() rồi build YOLO (không NWD);
+                          nếu cfg.sparsity_mask được set thì áp + giữ mask khi fine-tune
     modules.py              FreqMix (Haar band decompose + learnable softmax mixing)
     register.py              patch parse_model của ultralytics (pin 8.3.x)
+    _sparsity.py             re-apply mask sau mỗi optimizer step (train.py --sparsity-mask)
   _patch_utils.py         helper dùng chung cho lwso/register.py + fap/register.py — patch
                           parse_model cộng dồn đúng bất kể idea nào đăng ký trước
   __init__.py             MODEL_REGISTRY {idea: class} + build_model(idea, cfg)
@@ -41,7 +43,8 @@ data/
   visdrone.yaml        dataset config (sửa `path:` nếu chuyển máy)
   scripts/convert_visdrone.py     VisDrone → YOLO format
 train.py / val.py      entry point train & eval
-prune.py               semantic-path-aware LAMP pruning cho idea "fap" (xem mục riêng)
+prune.py               semantic-path-aware LAMP pruning cho idea "fap" — prune + eval + lưu
+                          sparsity mask, xem mục "Idea fap" bên dưới
 tests/                 pytest shape/param sanity tests
 logs/                   text log mỗi run (<name>.log, xem "Ghi chú quan trọng") — gitignored
 ```
@@ -129,19 +132,47 @@ concat+conv (HWD gốc), giữ nguyên số kênh sau biến đổi (không nhâ
 pool các layer thuộc đường P2/P3 (`configs/fap.yaml`'s `protected_layers`) + mọi `band_logits` +
 Detect head — các layer này không bao giờ bị prune bất kể LAMP score thấp thế nào.
 
+`prune.py` tự làm cả 3 bước của pipeline "train dense → prune → fine-tune ngắn" (trừ bước
+train dense, vẫn là `train.py` riêng):
+
 ```bash
-python train.py --idea fap                                              # train FreqMix dense
+python train.py --idea fap                                              # 1. train FreqMix dense
+
 python prune.py --weights runs/detect/fap-n/weights/best.pt --sparsity 0.3              # M6: LAMP+P2/P3 (đề xuất)
 python prune.py --weights runs/detect/fap-n/weights/best.pt --sparsity 0.3 --no-protect # M5: LAMP thường (ablation)
 python prune.py --weights runs/detect/fap-n/weights/best.pt --sparsity 0.3 --no-lamp --no-protect  # M4: magnitude đều (ablation)
 ```
 
-**Giới hạn hiện tại**: `prune.py` chỉ zero weight + lưu checkpoint, **không** giữ mask trong
-lúc fine-tune tiếp — nếu chạy `train.py --weights <pruned>.pt` sau đó, gradient sẽ làm các
-weight đã prune trôi khỏi 0 dần (paper mô tả pipeline có "fine-tune ngắn" sau prune, nhưng
-phần giữ sparsity trong lúc fine-tune chưa implement, ngoài phạm vi lần code này). Đã verify
-build+forward+prune+reload bằng chạy thật (CPU, không cần GPU); **chưa có số liệu mAP** — cần
-train thật trên GPU (Kaggle) theo ladder M1-M6 của paper để so sánh.
+Mỗi lần chạy, `prune.py` sẽ:
+1. Zero weight theo LAMP score + exception rule, lưu checkpoint `<weights>.pruned.pt`.
+2. Lưu sparsity mask `<weights>.pruned.mask.pt` (`{param_name: bool_tensor}`, đúng tên tham số
+   theo `model.named_parameters()`).
+3. **Tự eval cả trước và sau khi prune** trên `--data`/`--eval-split` (mặc định `val`), in bảng
+   mAP50/mAP50-95 so sánh ngay — biết ngay chi phí accuracy của lần prune này, không cần đoán.
+   Dùng `--no-eval` nếu chỉ muốn prune nhanh, bỏ qua eval.
+
+Fine-tune tiếp theo (giữ nguyên sparsity, không cho gradient kéo weight đã prune trôi khỏi 0)
+truyền thêm `--sparsity-mask` cho `train.py`:
+
+```bash
+python train.py --idea fap --weights runs/detect/fap-n/weights/best.pruned.pt \
+    --sparsity-mask runs/detect/fap-n/weights/best.pruned.mask.pt \
+    --epochs 10 --name fap-n-finetuned
+```
+
+Cơ chế: `FAPModel` (`models/fap/model.py` + `models/fap/_sparsity.py`) áp mask 1 lần lúc load
+checkpoint (an toàn trước lệch làm tròn fp16/AMP), rồi đăng ký callback `on_train_batch_end` —
+zero lại đúng các vị trí đã prune trên **cả** `trainer.model` **và** `trainer.ema.ema` sau mỗi
+optimizer step. Bắt buộc phải zero cả EMA: ultralytics gọi `ema.update(model)` bên trong
+`optimizer_step()`, **trước** khi `on_train_batch_end` chạy — best.pt/last.pt lưu từ EMA, không
+phải từ `trainer.model`, nên nếu chỉ zero `trainer.model` thì EMA vẫn hấp thụ 1 lượng gradient
+drift rất nhỏ (~1e-5) mỗi step, và số này **không** tự triệt tiêu qua nhiều step (đã verify thật:
+bỏ sót bước zero-EMA làm gần như toàn bộ 473K vị trí đã prune trôi khỏi 0 sau 2 epoch; zero cả
+hai thì 100% giữ đúng 0.0 tuyệt đối). Không gate theo `RANK` vì DDP chỉ all-reduce gradient chứ
+không đồng bộ weight — mọi rank phải tự áp mask giống hệt nhau mỗi step, nếu không các bản sao sẽ
+lệch dần. Đã verify toàn bộ pipeline (prune → eval → fine-tune → kiểm tra mask giữ đúng 0.0) bằng
+chạy thật CPU, tập con 6 ảnh; **chưa có số liệu mAP thật** — cần train + prune + fine-tune trên
+GPU (Kaggle), tập dữ liệu đầy đủ, theo ladder M1-M6 của paper để so sánh.
 
 ## Ghi chú quan trọng
 

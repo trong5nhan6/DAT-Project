@@ -39,6 +39,10 @@ Examples:
 
     # log mAP tập test mỗi 10 epoch (monitoring, không dùng để chọn best.pt)
     python train.py --idea lwso --test-every 10
+
+    # fine-tune sau khi prune.py (idea fap) — giữ sparsity mask trong suốt fine-tune
+    python train.py --idea fap --weights runs/detect/fap-n/weights/best.pruned.pt \\
+        --sparsity-mask runs/detect/fap-n/weights/best.pruned.mask.pt --epochs 10
 """
 
 import argparse
@@ -91,6 +95,9 @@ def main():
     ap.add_argument("--device", default=None, help="e.g. 0 or 0,1 or cpu")
     ap.add_argument("--name", default=None, help="run name under runs/detect/")
     ap.add_argument("--weights", default=None, help="optional .pt to warm-start a .yaml model")
+    ap.add_argument("--sparsity-mask", default=None, dest="sparsity_mask",
+                     help="(idea fap) <out>.mask.pt from prune.py — re-applied after every "
+                          "optimizer step so a fine-tune can't undo the pruning via gradient drift")
     ap.add_argument("--multi-scale", dest="multi_scale", action="store_true", default=None,
                      help="multi-scale training (more VRAM)")
     ap.add_argument("--close-mosaic", type=int, default=None)
@@ -114,7 +121,8 @@ def main():
     overrides = {
         "model_cfg": args.model_cfg, "data": args.data, "imgsz": args.imgsz,
         "epochs": args.epochs, "batch": args.batch, "device": args.device,
-        "name": args.name, "weights": args.weights, "multi_scale": args.multi_scale,
+        "name": args.name, "weights": args.weights, "sparsity_mask": args.sparsity_mask,
+        "multi_scale": args.multi_scale,
         "close_mosaic": args.close_mosaic, "mixup": args.mixup, "patience": args.patience,
         "resume": args.resume, "seed": args.seed, "test_every": args.test_every,
         "nwd_ratio": args.nwd_ratio, "nwd_constant": args.nwd_constant,

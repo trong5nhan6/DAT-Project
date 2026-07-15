@@ -15,11 +15,16 @@ their LAMP score is. This is M6 in the paper; drop --protect to get M5 (LAMP, no
 constraint) for the ablation comparison the paper is built around (Sec 5.5).
 
 Pipeline (paper Sec 4.2): train FreqMix dense (checkpoint) -> this script -> short
-fine-tune. Fine-tune is NOT implemented here: this script only zeros weights and saves a
-checkpoint; nothing keeps pruned weights at zero during a subsequent train.py run (no
-persistent mask/hook), so a naive fine-tune will let gradients drift them away from zero.
-That's out of scope for now -- see "hãy giúp tôi code idea này" follow-up if/when the
-train->prune->fine-tune loop needs closing.
+fine-tune. This script now covers all three:
+  1. Prune (zero weights, LAMP + P2/P3 exception rule).
+  2. Evaluate original vs pruned checkpoint on --data (so you know the accuracy cost
+     immediately, not just the sparsity achieved) -- pass --no-eval to skip.
+  3. Save a sparsity mask (<out>.mask.pt) alongside the checkpoint. Fine-tuning happens
+     via the normal `train.py --idea fap --weights <out> --sparsity-mask <out>.mask.pt`
+     -- FAPModel registers a callback that re-zeros the masked positions after every
+     optimizer step, so gradients can't undo the pruning while the rest of the network
+     keeps training. Without --sparsity-mask, a fine-tune would let pruned weights drift
+     away from zero within the first few batches.
 
 Usage:
     # M6: LAMP + P2/P3 exception rule (the paper's proposed method)
@@ -30,6 +35,11 @@ Usage:
 
     # M4: uniform per-layer magnitude pruning, no LAMP (ablation baseline for M5)
     python prune.py --weights runs/detect/fap-n/weights/best.pt --sparsity 0.3 --no-lamp
+
+    # then, short fine-tune with sparsity preserved:
+    python train.py --idea fap --weights runs/detect/fap-n/weights/best.pruned.pt \\
+        --sparsity-mask runs/detect/fap-n/weights/best.pruned.mask.pt \\
+        --epochs 10 --name fap-n-finetuned
 """
 
 import argparse
@@ -83,7 +93,9 @@ def prune_lamp(model, sparsity: float, protected_layers, use_lamp: bool = True, 
     params if `protect`), ranked by LAMP score (or raw magnitude if `use_lamp=False`,
     matching M4's uniform/uninformed baseline). Modifies `model` in place.
 
-    Returns a report dict: overall + per-region (protected vs prunable) sparsity achieved.
+    Returns (report, mask): report is overall + per-region sparsity achieved; mask is
+    {param_name: bool tensor} (True = pruned, held at 0) for every pruned Conv2d weight,
+    keyed to match model.named_parameters() -- consumed by train.py --sparsity-mask.
     """
     import torch
     import torch.nn as nn
@@ -94,15 +106,15 @@ def prune_lamp(model, sparsity: float, protected_layers, use_lamp: bool = True, 
     # threshold via kthvalue, then mask+zero each layer in one shot -- looping per-weight
     # in Python (millions of .item() calls for a multi-million-param model) would be far
     # too slow.
-    target_weights = []  # [(weight_tensor, score_tensor), ...]
+    target_weights = []  # [(param_name, weight_tensor, score_tensor), ...]
     all_scores = []
-    for m in model.modules():
+    for name, m in model.named_modules():
         if isinstance(m, nn.Conv2d):
             w = m.weight
             if id(w) in protected_ids:
                 continue
             scores = _lamp_scores(w) if use_lamp else w.detach().abs()
-            target_weights.append((w, scores))
+            target_weights.append((f"{name}.weight", w, scores))
             all_scores.append(scores.flatten())
 
     if not target_weights:
@@ -114,24 +126,42 @@ def prune_lamp(model, sparsity: float, protected_layers, use_lamp: bool = True, 
     threshold = torch.kthvalue(all_scores_flat, n_prune).values.item() if n_prune > 0 else float("-inf")
 
     pruned_count = 0
+    mask = {}
     with torch.no_grad():
-        for w, scores in target_weights:
-            mask = scores <= threshold
-            pruned_count += int(mask.sum().item())
-            w[mask] = 0.0
+        for name, w, scores in target_weights:
+            m = scores <= threshold
+            pruned_count += int(m.sum().item())
+            w[m] = 0.0
+            mask[name] = m.clone()
 
     total_params = sum(p.numel() for p in model.parameters())
     total_zero = sum((p == 0).sum().item() for p in model.parameters())
     protected_params = sum(
         p.numel() for name, p in model.named_parameters() if id(p) in protected_ids
     )
-    return {
+    report = {
         "candidate_weights": n_candidates,
         "pruned_weights": pruned_count,
         "overall_sparsity": total_zero / total_params,
         "protected_params": protected_params,
         "protected_frac_of_total": protected_params / total_params,
     }
+    return report, mask
+
+
+def _evaluate(weights: str, data: str, imgsz: int, device, split: str):
+    """Fresh YOLO load + val() -- returns (mAP50, mAP50-95), or (None, None) on failure
+    (e.g. no labels for `split`, common for VisDrone test-dev)."""
+    from ultralytics import YOLO
+
+    try:
+        metrics = YOLO(weights).val(
+            data=data, imgsz=imgsz, split=split, device=device, plots=False, verbose=False
+        )
+        return float(metrics.box.map50), float(metrics.box.map)
+    except Exception as e:
+        print(f"[fap] eval failed for {weights}: {e}")
+        return None, None
 
 
 def main():
@@ -145,6 +175,13 @@ def main():
     ap.add_argument("--no-lamp", dest="use_lamp", action="store_false",
                      help="rank by raw magnitude instead of LAMP score (M4 ablation)")
     ap.add_argument("--out", default=None, help="output .pt path (default: <weights>.pruned.pt)")
+    ap.add_argument("--no-eval", dest="eval", action="store_false",
+                     help="skip before/after accuracy evaluation (faster, but you won't "
+                          "know the accuracy cost of this prune)")
+    ap.add_argument("--data", default=str(ROOT / "data" / "visdrone.yaml"), help="for --eval")
+    ap.add_argument("--imgsz", type=int, default=960, help="for --eval")
+    ap.add_argument("--eval-split", default="val", choices=["val", "test"])
+    ap.add_argument("--device", default=None, help="for --eval, e.g. 0 or cpu")
     args = ap.parse_args()
 
     from omegaconf import OmegaConf
@@ -171,7 +208,7 @@ def main():
         print(f"[fap] protected layers (P2/P3 path): {protected_layers} "
               f"+ all band_logits + Detect head")
 
-    report = prune_lamp(
+    report, mask = prune_lamp(
         model, args.sparsity, protected_layers, use_lamp=args.use_lamp, protect=args.protect
     )
     print(f"[fap] candidates={report['candidate_weights']:,}  pruned={report['pruned_weights']:,}")
@@ -183,8 +220,35 @@ def main():
     out = Path(args.out) if args.out else Path(args.weights).with_suffix(".pruned.pt")
     yolo.save(str(out))
     print(f"[fap] saved pruned checkpoint -> {out}")
-    print("[fap] NOTE: pruned weights are NOT masked -- a subsequent fine-tune "
-          "(train.py --weights) will let gradients drift them away from zero.")
+
+    import torch
+
+    mask_path = out.with_suffix(".mask.pt")
+    torch.save(mask, mask_path)
+    n_masked = sum(int(m.sum().item()) for m in mask.values())
+    print(f"[fap] saved sparsity mask -> {mask_path} ({n_masked:,} positions held at 0)")
+
+    if args.eval:
+        print(f"\n[fap] evaluating on --{args.eval_split} (before vs after prune)...")
+        map50_before, map5095_before = _evaluate(
+            args.weights, args.data, args.imgsz, args.device, args.eval_split
+        )
+        map50_after, map5095_after = _evaluate(
+            str(out), args.data, args.imgsz, args.device, args.eval_split
+        )
+
+        def _fmt(v):
+            return f"{v:.4f}" if v is not None else "N/A"
+
+        print(f"\n[fap] {'':16s} {'mAP50':>10s}  {'mAP50-95':>10s}")
+        print(f"[fap] {'before prune':16s} {_fmt(map50_before):>10s}  {_fmt(map5095_before):>10s}")
+        print(f"[fap] {'after prune':16s} {_fmt(map50_after):>10s}  {_fmt(map5095_after):>10s}")
+        if map50_before is not None and map50_after is not None:
+            print(f"[fap] mAP50 delta: {map50_after - map50_before:+.4f}")
+
+    print(f"\n[fap] fine-tune with sparsity preserved:\n"
+          f"  python train.py --idea fap --weights {out} --sparsity-mask {mask_path} "
+          f"--epochs 10 --name <ten-run-moi>")
 
 
 if __name__ == "__main__":

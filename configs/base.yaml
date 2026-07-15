@@ -10,6 +10,7 @@ idea: baseline # idea key -> auto-resolve configs/<idea>.yaml: baseline | lwso
 # ── Model ────────────────────────────────────────────────────────────────────
 model_cfg: yolo11n.pt # .yaml (train from scratch, xem cfg/) hoặc .pt (finetune)
 weights: null # optional .pt để warm-start một model .yaml (model.load())
+sparsity_mask: null # (idea fap) đường dẫn <out>.mask.pt từ prune.py — giữ sparsity khi fine-tune
 
 # ── Dataset ──────────────────────────────────────────────────────────────────
 data: data/visdrone.yaml
