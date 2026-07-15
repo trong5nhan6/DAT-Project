@@ -13,14 +13,15 @@ must match exactly once, otherwise a RuntimeError explains which one failed —
 this is the canary for an incompatible ultralytics version.
 """
 
-import inspect
 import re
 
 import ultralytics.nn.tasks as tasks
 
-from .modules import BiFPNCat, C3k2Ghost, DySample, EMA, SPDConv
+from models._patch_utils import get_current_parse_model_source, save_parse_model_source
 
-_CUSTOM_CLASSES = (SPDConv, C3k2Ghost, EMA, DySample, BiFPNCat)
+from .modules import BiFPNCat, C3k2Ghost, DySample, ECA, EMA, SPDConv, SPDConvGroup
+
+_CUSTOM_CLASSES = (SPDConv, SPDConvGroup, C3k2Ghost, EMA, ECA, DySample, BiFPNCat)
 _registered = False
 
 
@@ -33,13 +34,14 @@ def register_lwso() -> None:
     for cls in _CUSTOM_CLASSES:
         setattr(tasks, cls.__name__, cls)
 
-    src = inspect.getsource(tasks.parse_model)
+    src = get_current_parse_model_source(tasks)
     substitutions = [
         # channel-inferring modules with (c1, c2, ...) signatures
         (
             r"base_modules = frozenset\(\s*\{",
             "base_modules = frozenset(\n        {\n"
-            "            SPDConv,\n            C3k2Ghost,\n            EMA,\n            DySample,",
+            "            SPDConv,\n            SPDConvGroup,\n            C3k2Ghost,\n"
+            "            EMA,\n            ECA,\n            DySample,",
         ),
         # modules whose 3rd arg is the repeat count n
         (
@@ -69,4 +71,5 @@ def register_lwso() -> None:
 
     code = compile(src, tasks.__file__, "exec")
     exec(code, tasks.__dict__)  # rebinds tasks.parse_model to the patched version
+    save_parse_model_source(tasks, src)
     _registered = True

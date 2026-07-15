@@ -1,0 +1,48 @@
+# Baseline: stock YOLO11n architecture, unmodified, for VisDrone2019.
+# Same backbone/head as ultralytics' yolo11.yaml (P3/8-P5/32 outputs, C3k2/SPPF/C2PSA,
+# plain Conv downsampling, nn.Upsample+Concat neck) — only nc is changed to VisDrone's 10.
+# Runs WITHOUT register_lwso() (all stock modules); gives an apples-to-apples,
+# trained-from-scratch baseline against cfg/ablation/yolo11n-p2-nop5.yaml (+P2/-P5)
+# and cfg/lwso-yolo11n.yaml (full model), since all three then share the same training
+# recipe instead of comparing against a COCO-pretrained finetune.
+#
+# For the transfer-learning baseline (M1 in README) use `--model yolo11n.pt` instead;
+# this file is for training the stock architecture from scratch as a fairer M0 reference.
+
+nc: 10 # VisDrone classes
+
+scales: # [depth, width, max_channels]
+  n: [0.50, 0.25, 1024]
+
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]] # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 2, C3k2, [256, False, 0.25]]
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 2, C3k2, [512, False, 0.25]]
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 2, C3k2, [512, True]]
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 2, C3k2, [1024, True]]
+  - [-1, 1, SPPF, [1024, 5]] # 9
+  - [-1, 2, C2PSA, [1024]] # 10
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 6], 1, Concat, [1]] # cat backbone P4
+  - [-1, 2, C3k2, [512, False]] # 13
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 4], 1, Concat, [1]] # cat backbone P3
+  - [-1, 2, C3k2, [256, False]] # 16 (P3/8-small)
+
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[-1, 13], 1, Concat, [1]] # cat head P4
+  - [-1, 2, C3k2, [512, False]] # 19 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [[-1, 10], 1, Concat, [1]] # cat head P5
+  - [-1, 2, C3k2, [1024, True]] # 22 (P5/32-large)
+
+  - [[16, 19, 22], 1, Detect, [nc]] # Detect(P3, P4, P5)

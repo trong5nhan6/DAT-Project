@@ -1,0 +1,5 @@
+# Idea: lwso — full LWSO-YOLO11n (SPDConv/C3k2Ghost/EMA/DySample/BiFPNCat) + NWD blend loss.
+idea: lwso
+model_cfg: cfg/lwso-yolo11n.yaml
+use_nwd: true
+name: lwso-n

@@ -1,0 +1,37 @@
+# =============================================================================
+# Base Training Configuration — LWSO-YOLO11 VisDrone
+# Mọi experiment (baseline.yaml, lwso.yaml, ...) kế thừa và override file này.
+# Ưu tiên: CLI flag > configs/<idea>.yaml (hoặc --config) > file này.
+# =============================================================================
+
+# ── Idea ─────────────────────────────────────────────────────────────────────
+idea: baseline # idea key -> auto-resolve configs/<idea>.yaml: baseline | lwso
+
+# ── Model ────────────────────────────────────────────────────────────────────
+model_cfg: yolo11n.pt # .yaml (train from scratch, xem cfg/) hoặc .pt (finetune)
+weights: null # optional .pt để warm-start một model .yaml (model.load())
+
+# ── Dataset ──────────────────────────────────────────────────────────────────
+data: data/visdrone.yaml
+imgsz: 960
+
+# ── Training Hyperparameters ─────────────────────────────────────────────────
+epochs: 50
+batch: 8 # P2 head @960 tốn VRAM; 8 fits ~12GB, tăng nếu còn dư
+device: null # null = ultralytics auto-detect; hoặc "0", "0,1", "cpu"
+multi_scale: false # tốn thêm VRAM
+close_mosaic: 15
+mixup: 0.1
+patience: 50
+resume: false
+
+# ── Output ───────────────────────────────────────────────────────────────────
+name: exp # run name dưới runs/detect/<name>/
+
+# ── Test-set monitoring (giám sát, không dùng để chọn best.pt) ───────────────
+test_every: 20 # 0 = tắt; log mAP tập test mỗi N epoch vào test_metrics.csv
+
+# ── NWD blend loss (xem models/lwso/losses.py) ────────────────────────────────
+use_nwd: false
+nwd_ratio: 0.5 # trọng số CIoU trong blend; (1-ratio) cho NWD
+nwd_constant: 12.8 # nên ablate {2, 4, 8, 12.8}

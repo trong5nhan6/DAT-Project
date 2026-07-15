@@ -1,16 +1,22 @@
 """Custom building blocks for LWSO-YOLO (LightWeight Small-Object YOLO).
 
 Modules:
-    SPDConv   - space-to-depth downsampling (no information loss, SPD-Conv paper).
-    C3k2Ghost - C3k2 block with GhostBottleneck inner blocks (~40% fewer FLOPs).
-    EMA       - Efficient Multi-scale Attention (Ouyang et al., ICASSP 2023).
-    DySample  - dynamic learnable upsampler, 'lp' style (Liu et al., ICCV 2023).
-    BiFPNCat  - weighted feature concat (BiFPN fast normalized fusion), drop-in
-                replacement for Concat in YAML.
+    SPDConv      - space-to-depth downsampling (no information loss, SPD-Conv paper).
+    SPDConvGroup - SPDConv with a grouped (not dense) fusion conv; same lossless
+                   space-to-depth but ~4-8x cheaper post-conv (LRDS-YOLO LAD-style).
+    C3k2Ghost    - C3k2 block with GhostBottleneck inner blocks (~40% fewer FLOPs).
+    EMA          - Efficient Multi-scale Attention (Ouyang et al., ICASSP 2023).
+    ECA          - Efficient Channel Attention (Wang et al., CVPR 2020); near-zero
+                   cost (1D conv over pooled channels, no reduction MLP).
+    DySample     - dynamic learnable upsampler, 'lp' style (Liu et al., ICCV 2023).
+    BiFPNCat     - weighted feature concat (BiFPN fast normalized fusion), drop-in
+                   replacement for Concat in YAML.
 
 All channel-changing modules follow the ultralytics (c1, c2, *args) convention so
 they can be registered into parse_model's `base_modules` set (see register.py).
 """
+
+import math
 
 import torch
 import torch.nn as nn
@@ -19,26 +25,51 @@ import torch.nn.functional as F
 from ultralytics.nn.modules.block import C2f, GhostBottleneck
 from ultralytics.nn.modules.conv import Conv
 
-__all__ = ["SPDConv", "C3k2Ghost", "EMA", "DySample", "BiFPNCat"]
+__all__ = ["SPDConv", "SPDConvGroup", "C3k2Ghost", "EMA", "ECA", "DySample", "BiFPNCat"]
+
+
+def _space_to_depth(x: torch.Tensor) -> torch.Tensor:
+    """Rearrange each 2x2 spatial patch into 4 channels -- halves H/W like a stride-2
+    conv/pool but discards no pixels, which matters for objects only a few pixels wide.
+    """
+    if x.shape[-1] % 2 or x.shape[-2] % 2:  # pad odd H/W to even so the 2x2 slices align
+        x = F.pad(x, (0, x.shape[-1] % 2, 0, x.shape[-2] % 2))
+    return torch.cat(
+        [x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1
+    )
 
 
 class SPDConv(nn.Module):
-    """Space-to-depth downsample: each 2x2 spatial patch is rearranged into 4 channels,
-    then fused by a stride-1 conv. Halves H/W like a stride-2 conv but discards no pixels,
-    which matters for objects only a few pixels wide.
-    """
+    """Space-to-depth downsample, fused by a dense stride-1 conv over all 4*c1 channels."""
 
     def __init__(self, c1: int, c2: int, k: int = 3):
         super().__init__()
         self.conv = Conv(c1 * 4, c2, k, 1)
 
     def forward(self, x):
-        if x.shape[-1] % 2 or x.shape[-2] % 2:  # pad odd H/W to even so the 2x2 slices align
-            x = F.pad(x, (0, x.shape[-1] % 2, 0, x.shape[-2] % 2))
-        x = torch.cat(
-            [x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1
-        )
-        return self.conv(x)
+        return self.conv(_space_to_depth(x))
+
+
+class SPDConvGroup(nn.Module):
+    """SPDConv with a grouped fusion conv instead of dense: same lossless space-to-depth,
+    but the post-rearrange conv only mixes within `groups` instead of across all 4*c1
+    channels. A dense SPDConv fusion conv is the single largest compute driver in
+    lwso-yolo11n.yaml (measured: +38% GFLOPs vs a stock stride-2 Conv at the same spot,
+    because it runs a full conv over 4x the channels) -- grouping it recovers most of
+    that cost without discarding the lossless rearrange. Falls back to fewer groups if
+    4*c1 or c2 isn't evenly divisible by `groups`.
+    """
+
+    def __init__(self, c1: int, c2: int, k: int = 3, groups: int = 8):
+        super().__init__()
+        c4 = c1 * 4
+        g = groups
+        while g > 1 and (c4 % g or c2 % g):
+            g -= 1
+        self.conv = Conv(c4, c2, k, 1, g=g)
+
+    def forward(self, x):
+        return self.conv(_space_to_depth(x))
 
 
 class C3k2Ghost(C2f):
@@ -88,6 +119,31 @@ class EMA(nn.Module):
             b * self.groups, 1, h, w
         )
         return (group_x * weights.sigmoid()).reshape(b, c, h, w)
+
+
+class ECA(nn.Module):
+    """Efficient Channel Attention (Wang et al., CVPR 2020). Channel-preserving; c2 arg
+    exists only for the (c1, c2, ...) registration convention. Kernel size is derived
+    from the channel count (no SE-style reduction MLP), so cost is a single 1D conv over
+    globally-pooled channels -- a few hundred params, negligible FLOPs. Meant for spots
+    that currently have no attention at all (e.g. the P2 output, where small objects
+    live) without meaningfully touching the compute budget.
+    """
+
+    def __init__(self, c1: int, c2: int = None, gamma: int = 2, b: int = 1):
+        super().__init__()
+        assert c2 is None or c2 == c1, f"ECA requires c1 == c2, got {c1} != {c2}"
+        t = int(abs((math.log2(c1) + b) / gamma))
+        k = t if t % 2 else t + 1
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=(k - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        y = self.avg_pool(x)  # (B, C, 1, 1)
+        y = self.conv(y.squeeze(-1).transpose(-1, -2))  # (B, 1, C) -> conv1d over channels
+        y = y.transpose(-1, -2).unsqueeze(-1)  # (B, C, 1, 1)
+        return x * self.sigmoid(y)
 
 
 def _normal_init(module: nn.Module, mean: float = 0.0, std: float = 1.0, bias: float = 0.0):

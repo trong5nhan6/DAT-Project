@@ -1,0 +1,12 @@
+# Idea: fap — FreqMix downsampling trên backbone gốc YOLO11n + đầu P2 (P3/P4/P5 giữ nguyên).
+# Không NWD (paper không dùng loss này — đóng góp của FAP-YOLO12n nằm ở representation
+# (FreqMix) và compression (semantic-path-aware LAMP pruning, xem prune.py), không phải loss).
+idea: fap
+model_cfg: cfg/fap-yolo11n.yaml
+use_nwd: false
+name: fap-n
+
+# Layer index (trong cfg/fap-yolo11n.yaml đã build, xem comment trong file đó) thuộc
+# đường P2/P3 — prune.py dùng để loại/giảm mức prune LAMP tại các layer này (Sec 4.2).
+# band_logits (mọi FreqMix) và Detect head luôn được bảo vệ bất kể danh sách này.
+protected_layers: [0, 1, 2, 3, 4, 17, 18, 19, 20, 21, 22]

@@ -5,7 +5,8 @@
 #   * C3k2 -> C3k2Ghost (GhostBottleneck inner blocks)
 #   * EMA attention on P3; C2PSA kept on P4
 #   * neck: BiFPN-style weighted fusion (BiFPNCat) + DySample learned upsampling
-# Requires lwso.register_lwso() before YOLO(<this file>).
+# Requires models.lwso.register_lwso() before YOLO(<this file>) — done automatically
+# by models.lwso.LWSOModel when training via --idea lwso.
 # Scale is taken from the filename suffix (11n / 11s); the -s copy is the KD teacher.
 
 nc: 10 # VisDrone classes

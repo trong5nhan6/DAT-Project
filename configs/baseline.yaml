@@ -1,0 +1,7 @@
+# Idea: baseline — YOLO11n gốc (module gốc 100%), không NWD loss.
+idea: baseline
+model_cfg: yolo11n.pt # finetune từ COCO-pretrained (M1 trong README)
+# model_cfg: cfg/base-yolo11n.yaml   # đổi sang dòng này để train from-scratch,
+#                                    # cùng recipe với lwso.yaml để so sánh công bằng hơn
+use_nwd: false
+name: base-11n

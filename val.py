@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Evaluate a trained checkpoint on VisDrone2019 val or test-dev.
 
-    python val.py --weights runs/detect/lwso/weights/best.pt --split val
-    python val.py --weights runs/detect/lwso/weights/best.pt --split test --imgsz 960
+    python val.py --weights runs/detect/lwso-n/weights/best.pt --split val
+    python val.py --weights runs/detect/lwso-n/weights/best.pt --split test --imgsz 960
 """
 
 import argparse
@@ -25,9 +25,14 @@ def main():
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
 
-    from lwso import register_lwso
+    # val.py doesn't know which --idea produced this checkpoint, so register every idea's
+    # custom modules regardless -- cheap, idempotent, harmless for a checkpoint that
+    # doesn't use them.
+    from models.fap.register import register_fap
+    from models.lwso.register import register_lwso
 
-    register_lwso()  # checkpoints containing custom modules need the classes importable
+    register_lwso()
+    register_fap()
 
     from ultralytics import YOLO
 

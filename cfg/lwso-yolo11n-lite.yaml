@@ -1,0 +1,61 @@
+# LWSO-YOLO11-lite — compute-trimmed variant of lwso-yolo11n.yaml, same idea, cheaper.
+#
+# Measured (params/GFLOPs measured with ultralytics.utils.torch_utils.get_flops):
+#   yolo11n baseline (cfg/base-yolo11n.yaml): 2.59M params, 6.45 GFLOPs@640
+#   lwso-yolo11n.yaml (full):                 2.40M params, 21.49 GFLOPs@640 (3.33x baseline)
+#   lwso-yolo11n-lite.yaml (this file):       1.12M params, 12.81 GFLOPs@640 (1.99x baseline)
+#
+# What changed vs lwso-yolo11n.yaml (2 edits, same idea/modules, nothing removed):
+#   1. P2 channels 64 -> 48 (P2 is the widest feature map, so its channel count has the
+#      largest FLOPs leverage of any width knob in this network).
+#   2. SPDConv kept ONLY at the P1->P2 transition (layer 1) -- where a several-pixel object
+#      is most at risk of vanishing under a lossy strided conv. The P2->P3 and P3->P4
+#      transitions (backbone + head bottom-up, 4 spots) revert to stock Conv: profiling
+#      showed SPDConv alone adds +38% GFLOPs vs stock Conv at the same spot (it runs a full
+#      conv over 4x the channels instead of a strided sample), which is the single largest
+#      compute driver in the full lwso-yolo11n.yaml -- bigger than C3k2Ghost's ~20% savings.
+#      By the P2->P3/P3->P4 stage the object is already several pixels wide in the P2
+#      feature map, so the lossless guarantee matters far less there.
+#
+# Everything else (C3k2Ghost, EMA, DySample, BiFPNCat, NWD blend loss, P2/P3/P4 heads,
+# no P5) is unchanged from lwso-yolo11n.yaml -- this is a cost trim, not a different idea.
+# Still requires models.lwso.register_lwso() (done automatically via --idea lwso).
+#
+# Not yet accuracy-validated -- narrower P2 + less lossless downsampling will cost some
+# mAP relative to lwso-yolo11n.yaml; train both and compare before picking one.
+
+nc: 10 # VisDrone classes
+
+scales: # [depth, width, max_channels]
+  n: [1.00, 1.00, 1024]
+
+backbone:
+  # [from, repeats, module, args]                    (shapes @ 960x960 input, n scale)
+  - [-1, 1, Conv, [16, 3, 2]] # 0  P1/2   16x480x480
+  - [-1, 1, SPDConv, [32]] # 1  P2/4   32x240x240   (kept: P1->P2, riskiest downsample)
+  - [-1, 2, C3k2Ghost, [48, False, 0.25]] # 2        48x240x240   (64->48)
+  - [-1, 1, Conv, [64, 3, 2]] # 3  P3/8   64x120x120  (SPDConv -> stock Conv)
+  - [-1, 2, C3k2Ghost, [128, False, 0.25]] # 4        128x120x120
+  - [-1, 1, EMA, [128]] # 5         128x120x120
+  - [-1, 1, Conv, [128, 3, 2]] # 6  P4/16  128x60x60   (SPDConv -> stock Conv)
+  - [-1, 2, C3k2Ghost, [128, True]] # 7               128x60x60
+  - [-1, 1, SPPF, [128, 5]] # 8               128x60x60
+  - [-1, 1, C2PSA, [128]] # 9               128x60x60
+
+head:
+  # top-down
+  - [-1, 1, DySample, [128, 2]] # 10 P4 -> P3 size
+  - [[-1, 5], 1, BiFPNCat, [2]] # 11 128+128=256
+  - [-1, 1, C3k2Ghost, [128, False]] # 12 P3 intermediate
+  - [-1, 1, DySample, [128, 2]] # 13 P3 -> P2 size
+  - [[-1, 2], 1, BiFPNCat, [2]] # 14 128+48=176 (P2 now 48ch)
+  - [-1, 1, C3k2Ghost, [48, False]] # 15 P2/4 out (48x240x240)
+  # bottom-up
+  - [-1, 1, Conv, [128, 3, 2]] # 16 P2 -> P3 size  (SPDConv -> stock Conv)
+  - [[-1, 12], 1, BiFPNCat, [2]] # 17 128+128=256
+  - [-1, 1, C3k2Ghost, [128, False]] # 18 P3/8 out
+  - [-1, 1, Conv, [128, 3, 2]] # 19 P3 -> P4 size  (SPDConv -> stock Conv)
+  - [[-1, 9], 1, BiFPNCat, [2]] # 20 128+128=256
+  - [-1, 1, C3k2Ghost, [128, True]] # 21 P4/16 out
+
+  - [[15, 18, 21], 1, Detect, [nc]] # 22 Detect(P2, P3, P4)

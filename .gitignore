@@ -4,6 +4,9 @@ datasets/
 # Training runs (weights, plots, csv logs) — reproducible from a run, not source
 runs/
 
+# Pretrained weights auto-downloaded by ultralytics (e.g. yolo11n.pt for --idea baseline)
+*.pt
+
 # Python
 __pycache__/
 *.py[cod]
