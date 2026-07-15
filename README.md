@@ -43,6 +43,7 @@ data/
 train.py / val.py      entry point train & eval
 prune.py               semantic-path-aware LAMP pruning cho idea "fap" (xem mục riêng)
 tests/                 pytest shape/param sanity tests
+logs/                   text log mỗi run (<name>.log, xem "Ghi chú quan trọng") — gitignored
 ```
 
 ## Bắt đầu
@@ -157,11 +158,15 @@ train thật trên GPU (Kaggle) theo ladder M1-M6 của paper để so sánh.
   `KMP_DUPLICATE_LIB_OK=TRUE`; fix triệt để là dùng venv/conda env riêng thay vì base env.
 - **Log khi train**: mặc định chỉ in ra console (stdout), không có file log riêng — muốn giữ
   lại thì tự redirect (`python train.py ... | tee console.log`). **Ngoại lệ**: nếu bật
-  `--test-every N` (mặc định 20), mỗi lần trigger sẽ ghi thêm `runs/detect/<name>/train.log`
-  (text: mAP test-set + bảng efficiency — params/GFLOPs/model size/latency/FPS, đo bằng
-  forward pass thật trên `trainer.device`) và `runs/detect/<name>/test_metrics.csv`
-  (`epoch,mAP50,mAP50-95,params_m,gflops,model_size_mb,latency_ms,fps`) — cả 2 file này chỉ
-  xuất hiện sau lần trigger đầu tiên, không phải ngay lúc train bắt đầu.
+  `--test-every N` (mặc định 20), tự tạo `logs/<name>.log` ở thư mục gốc project (tên file =
+  `cfg.name`, thư mục `logs/` tự tạo nếu chưa có, đã thêm vào `.gitignore`) — ghi **mỗi
+  epoch** 1 dòng (train loss + val P/R/mAP50/mAP50-95 + lr, chỉ ghi file, không in console vì
+  ultralytics đã tự in bảng epoch riêng), xen giữa là khối **EFFICIENCY METRICS** (params/
+  GFLOPs/model size/latency/FPS, đo forward pass thật) sau **mỗi lần trigger** `--test-every`.
+  Song song đó, `runs/detect/<name>/test_metrics.csv` (`epoch,mAP50,mAP50-95,params_m,gflops,
+  model_size_mb,latency_ms,fps`) cũng được ghi mỗi lần trigger. Cả 2 chỉ xuất hiện sau lần
+  trigger/epoch đầu tiên, không phải ngay lúc train bắt đầu; nếu `--test-every 0` thì không
+  có file log/CSV nào cả.
 - **Seed**: `configs/base.yaml` set `seed: 42` (`deterministic: True` là default có sẵn của
   ultralytics, project không đổi). Override qua `--seed <n>` nếu cần chạy nhiều seed khác
   nhau để lấy mean±std.

@@ -4,6 +4,9 @@ datasets/
 # Training runs (weights, plots, csv logs) — reproducible from a run, not source
 runs/
 
+# Text training logs (logs/<name>.log, xem models/base_model.py) — reproducible from a run
+logs/
+
 # Pretrained weights auto-downloaded by ultralytics (e.g. yolo11n.pt for --idea baseline)
 *.pt
 

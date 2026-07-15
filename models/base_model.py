@@ -54,13 +54,12 @@ class BaseModel(ABC):
         test_every = int(self.cfg.get("test_every", 0) or 0)
         if test_every <= 0:
             return {}
-        # Actual path printed lazily by the callback itself, once it knows the real
-        # trainer.save_dir — ultralytics auto-increments run names on collision
-        # (exist_ok=False default), so "runs/detect/<cfg.name>/..." could be a guess.
-        print(f"[lwso] test-set eval every {test_every} epochs enabled")
+        print(f"[lwso] test-set eval every {test_every} epochs enabled "
+              f"-> logs/{self.cfg.name}.log")
         return {
             "on_fit_epoch_end": _build_test_eval_callback(
-                str(self.cfg.data), int(self.cfg.imgsz), int(self.cfg.batch), test_every,
+                str(self.cfg.data), int(self.cfg.imgsz), int(self.cfg.batch),
+                test_every, str(self.cfg.name),
             )
         }
 
@@ -136,10 +135,43 @@ def _format_efficiency_report(eff: dict) -> list[str]:
     ]
 
 
-def _build_test_eval_callback(data: str, imgsz: int, batch: int, every: int):
-    """Every `every` epochs, val on the VisDrone test-dev split using the run's current
-    EMA weights, print+log mAP and efficiency metrics (params/GFLOPs/latency/FPS) to
-    <save_dir>/test_metrics.csv and <save_dir>/train.log.
+def _format_epoch_line(trainer, epoch: int) -> str:
+    """One-line per-epoch trace: train loss + val metrics (already computed by
+    ultralytics' own per-epoch validate() by the time on_fit_epoch_end fires) + lr.
+    File-only (not printed) -- ultralytics already prints an equivalent progress
+    table to console every epoch, so this would just duplicate it there.
+    """
+    tloss = trainer.tloss
+    names = getattr(trainer, "loss_names", ("box_loss", "cls_loss", "dfl_loss"))
+    if tloss is not None:
+        vals = tloss.tolist() if hasattr(tloss, "tolist") else list(tloss)
+        loss_str = "  ".join(f"{n}={v:.4f}" for n, v in zip(names, vals))
+    else:
+        loss_str = "loss=N/A"
+
+    metrics = trainer.metrics or {}
+
+    def _fmt(v):
+        return f"{v:.4f}" if v is not None else " N/A"
+
+    metric_str = (
+        f"P={_fmt(metrics.get('metrics/precision(B)'))} "
+        f"R={_fmt(metrics.get('metrics/recall(B)'))} "
+        f"mAP50={_fmt(metrics.get('metrics/mAP50(B)'))} "
+        f"mAP50-95={_fmt(metrics.get('metrics/mAP50-95(B)'))}"
+    )
+    lr_vals = list((trainer.lr or {}).values())
+    lr_str = f"lr={lr_vals[0]:.6f}" if lr_vals else "lr=N/A"
+
+    total = getattr(trainer, "epochs", "?")
+    return f"[EPOCH {epoch:>4}/{total}]  {loss_str}  |  {metric_str}  |  {lr_str}"
+
+
+def _build_test_eval_callback(data: str, imgsz: int, batch: int, every: int, log_name: str):
+    """Writes <repo_root>/logs/<log_name>.log with a per-epoch train/val trace (every
+    epoch) plus, every `every` epochs, a test-dev split mAP + efficiency metrics
+    (params/GFLOPs/latency/FPS) block -- printed to console too. Also appends the
+    periodic block to <save_dir>/test_metrics.csv.
 
     Uses a standalone DetectionValidator (model=... path, not trainer=...) so it never
     touches trainer.validator / trainer.stopper / best.pt selection, which stay driven by
@@ -154,6 +186,7 @@ def _build_test_eval_callback(data: str, imgsz: int, batch: int, every: int):
     of real deployment latency) since it's discarded at the end of this callback either way.
     """
     import copy
+    from pathlib import Path
 
     from ultralytics.models.yolo.detect import DetectionValidator
     from ultralytics.utils import RANK
@@ -171,9 +204,21 @@ def _build_test_eval_callback(data: str, imgsz: int, batch: int, every: int):
         epoch = trainer.epoch + 1  # 1-indexed, matches the printed epoch column
         # trainer.final_eval() re-fires on_fit_epoch_end once more at the same epoch
         # after training ends; skip the repeat instead of double-logging/re-validating.
-        if epoch % every != 0 or epoch == state["last_epoch"]:
+        if epoch == state["last_epoch"]:
             return
         state["last_epoch"] = epoch
+
+        if state["log_path"] is None:
+            logs_dir = Path("logs")
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            state["log_path"] = logs_dir / f"{log_name}.log"
+            print(f"[lwso] text log -> {state['log_path']}")
+
+        with open(state["log_path"], "a", encoding="utf-8") as f:
+            f.write(_format_epoch_line(trainer, epoch) + "\n")
+
+        if epoch % every != 0:
+            return
 
         if state["validator"] is None:
             state["validator"] = DetectionValidator(
@@ -193,9 +238,7 @@ def _build_test_eval_callback(data: str, imgsz: int, batch: int, every: int):
                 state["csv_path"].write_text(
                     "epoch,mAP50,mAP50-95,params_m,gflops,model_size_mb,latency_ms,fps\n"
                 )
-            state["log_path"] = trainer.save_dir / "train.log"
             print(f"[lwso] test-set eval log -> {state['csv_path']}")
-            print(f"[lwso] text log -> {state['log_path']}")
 
         _log(f"\n[lwso] test-set eval @ epoch {epoch}")
         model = copy.deepcopy(trainer.ema.ema or trainer.model)
