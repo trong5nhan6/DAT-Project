@@ -8,6 +8,8 @@ import torch
 from models.fap.modules import FreqMix
 from models.lwso.losses import nwd
 from models.lwso.modules import BiFPNCat, C3k2Ghost, DySample, ECA, EMA, SPDConv, SPDConvGroup
+from models.pd.distill import cwd_loss
+from models.slim.modules import ConvGN, LSCDetect, Scale
 from models.star.losses import wiou
 from models.star.modules import GSBottleneck, GSConv, SimAM, StarBlock, VoVGSCSP, C3k2Star
 
@@ -278,6 +280,136 @@ def test_wiou_stays_finite_for_near_degenerate_small_boxes():
     assert loss.item() < 10.0  # r (<=~1.3 peak) * r_wiou (<=3) * l_iou (<=1) is bounded well under 10
 
 
+# ---------------------------------------------------------------- slim (LSCDetect head)
+
+def test_convgn_shape_and_uses_groupnorm_not_batchnorm():
+    m = ConvGN(32, 64, 3)
+    y = m(torch.randn(2, 32, 16, 16))
+    assert y.shape == (2, 64, 16, 16)
+    assert isinstance(m.gn, torch.nn.GroupNorm)
+    assert not any(isinstance(x, torch.nn.BatchNorm2d) for x in m.modules())
+
+
+def test_convgn_gn_groups_adapt_to_odd_channels():
+    # 40 channels: gcd(16, 40) = 8 groups; must build and forward without error
+    y = ConvGN(16, 40, 3)(torch.randn(1, 16, 8, 8))
+    assert y.shape == (1, 40, 8, 8)
+
+
+def test_convgn_depthwise_variant():
+    m = ConvGN(48, 48, 3, g=48)
+    assert m.conv.groups == 48
+    assert n_params(m) < n_params(ConvGN(48, 48, 3))
+
+
+def test_scale_multiplies_and_is_learnable():
+    s = Scale(2.0)
+    assert torch.allclose(s(torch.ones(3)), torch.full((3,), 2.0))
+    assert sum(1 for _ in s.parameters()) == 1
+
+
+def test_lscdetect_train_and_eval_forward():
+    ch = (48, 96, 128)
+    m = LSCDetect(nc=10, hidc=48, ch=ch)
+    m.stride = torch.tensor([4.0, 8.0, 16.0])
+    m.bias_init()  # must not need per-scale cv2/cv3 ModuleLists like stock Detect does
+    feats = [torch.randn(2, c, 64 // (2**i), 64 // (2**i)) for i, c in enumerate(ch)]
+    m.train()
+    outs = m([f.clone() for f in feats])
+    assert [o.shape[1] for o in outs] == [m.no] * 3  # 4*reg_max + nc per scale
+    m.eval()
+    with torch.no_grad():
+        y, raw = m([f.clone() for f in feats])
+    assert y.shape[1] == 4 + 10  # decoded boxes + class scores
+
+
+def test_lscdetect_much_lighter_than_stock_detect():
+    from ultralytics.nn.modules.head import Detect
+
+    ch = (48, 96, 128)
+    shared = LSCDetect(nc=10, hidc=48, ch=ch)
+    stock = Detect(nc=10, ch=ch)
+    assert n_params(shared) < 0.5 * n_params(stock), (
+        f"LSCDetect {n_params(shared)} should be <50% of stock Detect {n_params(stock)}"
+    )
+
+
+def test_slim_yaml_stays_under_baseline_budget():
+    # The whole point of idea slim: params < 2.58M AND GFLOPs@640 < 6.5 (stock YOLO11n,
+    # unfused) while keeping the P2 head. Regression-guard both.
+    from models.slim.register import register_slim
+
+    register_slim()
+    from ultralytics import YOLO
+    from ultralytics.utils.torch_utils import get_flops
+
+    det = YOLO(str(ROOT / "cfg/slim-yolo11n.yaml")).model
+    assert n_params(det) < 2_580_000
+    gflops = get_flops(det, 640)
+    assert 0 < gflops < 6.5, f"slim GFLOPs@640 = {gflops:.2f}, must stay below baseline 6.5"
+
+
+def test_slim_fuse_preserves_groupnorm_head():
+    # DetectionModel.fuse() folds Conv+BatchNorm pairs; ConvGN must never be caught by
+    # that isinstance net (GroupNorm can't be folded into a conv the same way).
+    from models.slim.register import register_slim
+
+    register_slim()
+    from ultralytics import YOLO
+
+    det = YOLO(str(ROOT / "cfg/slim-yolo11n.yaml")).model
+    n_gn_before = sum(1 for m in det.modules() if isinstance(m, torch.nn.GroupNorm))
+    det.fuse()
+    n_gn_after = sum(1 for m in det.modules() if isinstance(m, torch.nn.GroupNorm))
+    assert n_gn_before == n_gn_after > 0
+    with torch.no_grad():
+        det.eval()(torch.zeros(1, 3, 256, 256))
+
+
+# ---------------------------------------------------------------- pd (CWD distillation)
+
+def test_cwd_identical_features_give_zero_loss():
+    f = torch.randn(2, 8, 16, 16)
+    assert cwd_loss(f, f.clone()).abs().item() < 1e-6
+
+
+def test_cwd_positive_and_finite_for_different_features():
+    torch.manual_seed(0)
+    fs, ft = torch.randn(2, 8, 16, 16), torch.randn(2, 8, 16, 16)
+    loss = cwd_loss(fs, ft)
+    assert torch.isfinite(loss) and loss.item() > 0
+
+
+def test_cwd_gradients_flow_to_student_only():
+    fs = torch.randn(1, 4, 8, 8, requires_grad=True)
+    ft = torch.randn(1, 4, 8, 8)
+    cwd_loss(fs, ft).backward()
+    assert fs.grad is not None and torch.isfinite(fs.grad).all()
+
+
+def test_cwd_rejects_shape_mismatch():
+    with pytest.raises(ValueError):
+        cwd_loss(torch.randn(1, 8, 8, 8), torch.randn(1, 16, 8, 8))
+
+
+def test_cwd_half_precision_inputs_computed_in_fp32():
+    # under AMP the stashed features arrive as fp16; the loss must not overflow/underflow
+    fs = torch.randn(1, 4, 8, 8).half()
+    ft = torch.randn(1, 4, 8, 8).half()
+    assert torch.isfinite(cwd_loss(fs, ft))
+
+
+def test_pd_trainer_get_model_returns_module_unchanged():
+    from models.pd.model import _pd_trainer_cls
+
+    trainer_cls = _pd_trainer_cls()
+    m = torch.nn.Conv2d(3, 8, 3)
+    out = trainer_cls.get_model(None, cfg={"whatever": 1}, weights=m)
+    assert out is m  # same object, no yaml rebuild, float() in place
+    with pytest.raises(RuntimeError):
+        trainer_cls.get_model(None, cfg=None, weights=None)
+
+
 # ---------------------------------------------------------------- full models
 
 @pytest.mark.parametrize(
@@ -289,6 +421,7 @@ def test_wiou_stays_finite_for_near_degenerate_small_boxes():
         ("cfg/ablation/yolo11n-p2-nop5.yaml", None, [4, 8, 16]),
         ("cfg/fap-yolo11n.yaml", "fap", [4, 8, 16, 32]),
         ("cfg/star-yolo11n.yaml", "star", [4, 8, 16]),
+        ("cfg/slim-yolo11n.yaml", "slim", [4, 8, 16]),
     ],
 )
 def test_model_builds_and_forwards(cfg, register_fn, expected_strides):
@@ -304,6 +437,10 @@ def test_model_builds_and_forwards(cfg, register_fn, expected_strides):
         from models.star.register import register_star
 
         register_star()
+    elif register_fn == "slim":
+        from models.slim.register import register_slim
+
+        register_slim()
     # register_fn is None for cfg files that only use stock ultralytics modules
 
     from ultralytics import YOLO

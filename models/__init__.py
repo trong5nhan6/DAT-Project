@@ -15,6 +15,8 @@ from models.base_model import BaseModel
 from models.baseline import BaselineModel
 from models.fap import FAPModel
 from models.lwso import LWSOModel
+from models.pd import PDModel
+from models.slim import SlimModel
 from models.star import StarModel
 
 MODEL_REGISTRY: dict[str, type[BaseModel]] = {
@@ -22,6 +24,8 @@ MODEL_REGISTRY: dict[str, type[BaseModel]] = {
     "lwso": LWSOModel,
     "fap": FAPModel,
     "star": StarModel,
+    "slim": SlimModel,
+    "pd": PDModel,
 }
 
 
@@ -35,5 +39,5 @@ def build_model(idea: str, cfg) -> BaseModel:
 
 __all__ = [
     "MODEL_REGISTRY", "build_model", "BaseModel", "BaselineModel", "LWSOModel", "FAPModel",
-    "StarModel",
+    "StarModel", "SlimModel", "PDModel",
 ]

@@ -1,0 +1,70 @@
+# SLIM-YOLO11n — lwso-yolo11n-eff.yaml frame with exactly TWO changes, both aimed at the
+# repo's standing target (params < 2.58M, GFLOPs@640 < 6.3, mAP50 > baseline 29.6 — see
+# results/result.txt):
+#
+#   1. LSCDetect head (models/slim/modules.py) replaces stock Detect: per-scale 1x1 ConvGN
+#      align to a shared 64ch hidden width -> ONE shared 2x(3x3 ConvGN) stack + ONE shared
+#      box conv + ONE shared cls conv + per-scale learnable Scale. The stock head's private
+#      per-scale cv2/cv3 stacks are ~half the params of a sub-1M P2 model and a large GFLOPs
+#      slice (paid at P2 resolution); GroupNorm additionally suits batch=8 (BN stats are
+#      noisy there — FCOS/LSCD papers both report GN heads matching or beating BN).
+#   2. P2 neck output thinned 64 -> 48 (and its ECA follows). star-yolo11n.yaml showed 32ch
+#      at P2 loses mAP across every class (29.0 vs lwso-eff's 31.8) while lwso-eff's 64ch
+#      costs 12.1 GFLOPs; 48 is the deliberate middle. Everything else keeps lwso-eff's
+#      proven widths — this file changes as few variables as possible vs the strongest
+#      trained model in the repo.
+#
+# Rationale for NOT porting star's other swaps (FreqMix, C3k2Star, VoVGSCSP, SimAM): star
+# measured cheaper on FLOPs but 2.8x slower per image (6.8ms vs 2.4ms inference) — FreqMix/
+# DySample are memory-bound; and its all-at-once changes made the mAP loss unattributable.
+# Loss recipe stays NWD blend (configs/slim.yaml), same as the winning lwso-eff run.
+#
+# Requires models.slim.register_slim() before YOLO(<this file>) — done automatically via
+# --idea slim (register_slim() calls register_lwso() for the reused lwso modules).
+#
+# Iteration history (each measured via a real build, per this repo's rule):
+#   v1 (head hidc=64 with two dense shared 3x3s, neck P3 at 128ch, P2 at 48ch):
+#      0.695M params, 10.86 GFLOPs@640 — per-layer profiling showed the shared head stack
+#      alone was 5.57 GFLOPs (53%): weight sharing cuts params, but every scale still PAYS
+#      the shared convs at its own resolution, and P2 pays 16x P4.
+#   v2 (this file): hidc 64->48, second shared conv made depthwise, P3 neck 128->96 both
+#      directions: 0.560M params, 6.31 GFLOPs@640 / 14.2 GFLOPs@960 — below stock YOLO11n
+#      (2.58M / 6.5 GFLOPs@640 unfused) on both axes, with the P2 head kept. Head share
+#      now 1.86 GFLOPs (31%). mAP not yet validated — needs a real training run.
+
+nc: 10 # VisDrone classes
+
+scales: # [depth, width, max_channels]
+  n: [1.00, 1.00, 1024]
+
+backbone:
+  # [from, repeats, module, args]                    (shapes @ 960x960 input, n scale)
+  - [-1, 1, Conv, [16, 3, 2]] # 0  P1/2   16x480x480
+  - [-1, 1, SPDConvGroup, [32]] # 1  P2/4   32x240x240
+  - [-1, 2, C3k2Ghost, [64, False, 0.25]] # 2         64x240x240
+  - [-1, 1, SPDConvGroup, [64]] # 3  P3/8   64x120x120
+  - [-1, 2, C3k2Ghost, [128, False, 0.25]] # 4        128x120x120
+  - [-1, 1, EMA, [128]] # 5         128x120x120
+  - [-1, 1, SPDConvGroup, [128]] # 6  P4/16  128x60x60
+  - [-1, 2, C3k2Ghost, [128, True]] # 7               128x60x60
+  - [-1, 1, SPPF, [128, 5]] # 8               128x60x60
+  - [-1, 1, C2PSA, [128]] # 9               128x60x60
+
+head:
+  # top-down
+  - [-1, 1, DySample, [128, 2]] # 10 P4 -> P3 size
+  - [[-1, 5], 1, BiFPNCat, [2]] # 11 128+128=256
+  - [-1, 1, C3k2Ghost, [96, False]] # 12 P3 intermediate (thinned 128 -> 96)
+  - [-1, 1, DySample, [96, 2]] # 13 P3 -> P2 size
+  - [[-1, 2], 1, BiFPNCat, [2]] # 14 96+64=160
+  - [-1, 1, C3k2Ghost, [48, False]] # 15 P2/4 out (thinned 64 -> 48, star's 32 was too thin)
+  - [-1, 1, ECA, [48]] # 16 cheap channel attention on P2 (small-object features)
+  # bottom-up
+  - [-1, 1, SPDConvGroup, [96]] # 17 P2 -> P3 size
+  - [[-1, 12], 1, BiFPNCat, [2]] # 18 96+96=192
+  - [-1, 1, C3k2Ghost, [96, False]] # 19 P3/8 out (thinned 128 -> 96)
+  - [-1, 1, SPDConvGroup, [128]] # 20 P3 -> P4 size
+  - [[-1, 9], 1, BiFPNCat, [2]] # 21 128+128=256
+  - [-1, 1, C3k2Ghost, [128, True]] # 22 P4/16 out
+
+  - [[16, 19, 22], 1, LSCDetect, [nc, 48]] # 23 shared-conv GN head (P2, P3, P4), hidc=48

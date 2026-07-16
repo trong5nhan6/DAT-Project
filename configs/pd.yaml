@@ -1,0 +1,26 @@
+# Idea: pd — "prune/distill": train một student bất kỳ kèm CWD distillation từ teacher
+# mạnh hơn (models/pd/). 2 chế độ student, chọn theo đuôi file của model_cfg:
+#
+#   .yaml (mặc định, flagship): train cfg/slim-yolo11n.yaml (0.56M / 6.31 GFLOPs@640)
+#       từ scratch + distill từ lwso-eff đã train (mAP50 31.8). Lệch kênh tap P2/P3
+#       (48/96 vs 64/128) được hấp thụ bởi adapter 1x1 tự tạo (không đi vào checkpoint).
+#           python train.py --idea pd --name slim-distill
+#
+#   .pt: fine-tune checkpoint đã prune vật lý từ prune_structured.py, self-distill từ
+#       chính bản dense (kênh tap khớp sẵn nhờ protect mặc định, không cần adapter):
+#           python prune_structured.py --weights runs/detect/lwso-n-eff/weights/best.pt --target-gflops 8.0
+#           python train.py --idea pd \
+#               --model runs/detect/lwso-n-eff/weights/best.pruned-structured.pt \
+#               --epochs 40 --name pd-n
+#
+# distill_teacher trỏ vào run dense lwso-eff (`--idea lwso --model cfg/lwso-yolo11n-eff.yaml
+# --name lwso-n-eff`) — sửa nếu run name khác. Đặt null để train không distill (ablation).
+idea: pd
+model_cfg: cfg/slim-yolo11n.yaml
+use_nwd: true # cùng recipe loss với run lwso-eff (teacher)
+
+distill_teacher: runs/detect/lwso-n-eff/weights/best.pt
+distill_weight: 1.0 # hệ số nhân CWD (paper hay dùng 1-5; ablate nếu box/cls loss bị lấn át)
+distill_tau: 4.0 # nhiệt độ softmax theo vị trí không gian
+
+name: pd-slim-distill

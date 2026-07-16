@@ -8,6 +8,8 @@ pytest
 omegaconf>=2.3   # configs/base.yaml + configs/<idea>.yaml merging in train.py
 
 # stage-3 compression (M6) — uncomment when you reach it
-# torch-pruning>=1.4
+# torch-pruning>=1.6  # prune_structured.py only — EXPERIMENTAL, tp<=1.6.1 breaks on this
+#                     # architecture family (see prune_structured.py docstring); idea pd
+#                     # (distill) does NOT need it
 # onnx
 # onnxruntime

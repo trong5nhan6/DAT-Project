@@ -63,10 +63,12 @@ def patch_ddp_registration() -> None:
         f"    sys.path.insert(0, {str(REPO_ROOT)!r})\n"
         "    from models.fap.register import register_fap\n"
         "    from models.lwso.register import register_lwso\n"
+        "    from models.slim.register import register_slim\n"
         "    from models.star.register import register_star\n"
         "    register_lwso()\n"
         "    register_fap()\n"
         "    register_star()\n"
+        "    register_slim()\n"
     )
 
     def generate_ddp_file_with_registration(trainer):

@@ -1,0 +1,7 @@
+# Idea: slim — lwso-eff frame + LSCDetect shared GroupNorm head + P2 neck 64->48.
+# Loss recipe identical to the winning lwso-eff run (NWD blend) so the architecture is
+# the only moving part vs that result.
+idea: slim
+model_cfg: cfg/slim-yolo11n.yaml
+use_nwd: true
+name: slim-n
