@@ -52,10 +52,19 @@ Examples:
 import argparse
 import os
 import sys
+import warnings
 from pathlib import Path
 
 # Anaconda ships its own libiomp5md.dll which clashes with torch's copy on Windows
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
+# ultralytics trains with torch.use_deterministic_algorithms(True, warn_only=True);
+# DySample's grid_sample and EMA's adaptive_avg_pool2d have no deterministic CUDA
+# backward, so torch warns every epoch. Harmless (warn_only falls back to the
+# non-deterministic kernel) — silence it instead of dropping deterministic=True.
+warnings.filterwarnings(
+    "ignore", message=".*does not have a deterministic implementation.*"
+)
 
 # Windows' default console codepage (e.g. cp1258) can't encode the Vietnamese
 # diacritics in --help text / log messages below; force UTF-8 so `--help` and
