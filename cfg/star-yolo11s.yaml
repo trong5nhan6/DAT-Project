@@ -1,0 +1,43 @@
+# STAR-YOLO11s — s-scale copy of cfg/star-yolo11n.yaml (ultralytics picks the scale from
+# the "11s" filename suffix; channels below stay written at n scale, multiplied by the s
+# width factor at build time). Same convention as cfg/lwso-yolo11s.yaml / slim-yolo11s.yaml.
+# Stock Detect head -> nothing needs hand-scaling (unlike slim's LSCDetect hidc).
+# See cfg/star-yolo11n.yaml for the full v1->v3 architecture rationale.
+# Requires models.star.register_star() — done automatically via --idea star.
+
+nc: 10 # VisDrone classes
+
+scales: # [depth, width, max_channels]
+  n: [1.00, 1.00, 1024] # channels below are written for the n scale
+  s: [1.33, 1.50, 1024] # picked via the 11s filename suffix
+
+backbone:
+  # [from, repeats, module, args]              (shapes @ 640x640 input, n scale)
+  - [-1, 1, Conv, [16, 3, 2]] # 0  P1/2   16x320x320
+  - [-1, 1, FreqMix, [32]] # 1  P2/4     32x160x160
+  - [-1, 1, C3k2, [64, False, 0.25]] # 2  P2 feature (stock -- cheapest at this resolution) 64x160x160
+  - [-1, 1, FreqMix, [64]] # 3  P3/8     64x80x80
+  - [-1, 1, C3k2Star, [128, False, 0.25]] # 4  P3 feature (StarBlock, affordable here) 128x80x80
+  - [-1, 1, FreqMix, [128]] # 5  P4/16    128x40x40
+  - [-1, 1, C3k2Star, [128, True]] # 6  P4 feature 128x40x40
+  - [-1, 1, SPPF, [128, 5]] # 7          128x40x40
+  - [-1, 1, C2PSA, [128]] # 8          128x40x40
+
+head:
+  # top-down (neck channels thinned to match fap-yolo11n.yaml's proven ratio, not full backbone width)
+  - [-1, 1, DySample, [128, 2]] # 9  P4 -> P3 size
+  - [[-1, 4], 1, BiFPNCat, [2]] # 10 128+128=256
+  - [-1, 1, VoVGSCSP, [64, False]] # 11 P3 top-down (thinned: 256 -> 64, not 128)
+  - [-1, 1, DySample, [64, 2]] # 12 P3 -> P2 size
+  - [[-1, 2], 1, BiFPNCat, [2]] # 13 64+64=128
+  - [-1, 1, C3k2, [32, False]] # 14 P2/4 out (stock, thinned: 128 -> 32, not 64)
+  - [-1, 1, SimAM, [32]] # 15 parameter-free attention on P2 (small-object features), ~free
+  # bottom-up
+  - [-1, 1, FreqMix, [64]] # 16 P2 -> P3 size
+  - [[-1, 11], 1, BiFPNCat, [2]] # 17 64+64=128
+  - [-1, 1, VoVGSCSP, [64, False]] # 18 P3/8 out
+  - [-1, 1, FreqMix, [128]] # 19 P3 -> P4 size
+  - [[-1, 8], 1, BiFPNCat, [2]] # 20 128+128=256
+  - [-1, 1, VoVGSCSP, [128, True]] # 21 P4/16 out
+
+  - [[15, 18, 21], 1, Detect, [nc]] # 22 Detect(P2, P3, P4) -- P2 tap is post-SimAM

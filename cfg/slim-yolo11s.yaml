@@ -1,0 +1,50 @@
+# SLIM-YOLO11s — s-scale copy of cfg/slim-yolo11n.yaml (same convention as
+# cfg/lwso-yolo11s.yaml: ultralytics picks the scale from the "11s" filename suffix,
+# channels below stay written at n scale and get multiplied by the s width factor).
+#
+# Two things do NOT auto-scale and are adjusted by hand here:
+#   * LSCDetect's hidc: Detect-family head args bypass parse_model's width scaling,
+#     so hidc is written as 72 (= 48 x 1.5) to keep the head proportional.
+#   * depth 1.33 rounds every "repeats: 2" block to 3 inner blocks.
+#
+# See cfg/slim-yolo11n.yaml for the full architecture rationale; this file only adds
+# the s scale for a bigger-capacity run (e.g. KD teacher or capacity ablation).
+# Requires models.slim.register_slim() — done automatically via --idea slim.
+
+nc: 10 # VisDrone classes
+
+scales: # [depth, width, max_channels]
+  n: [1.00, 1.00, 1024] # channels below are written for the n scale
+  s: [1.33, 1.50, 1024] # picked via the 11s filename suffix
+
+backbone:
+  # [from, repeats, module, args]                    (shapes @ 960x960 input, n scale)
+  - [-1, 1, Conv, [16, 3, 2]] # 0  P1/2   16x480x480
+  - [-1, 1, SPDConvGroup, [32]] # 1  P2/4   32x240x240
+  - [-1, 2, C3k2Ghost, [64, False, 0.25]] # 2         64x240x240
+  - [-1, 1, SPDConvGroup, [64]] # 3  P3/8   64x120x120
+  - [-1, 2, C3k2Ghost, [128, False, 0.25]] # 4        128x120x120
+  - [-1, 1, EMA, [128]] # 5         128x120x120
+  - [-1, 1, SPDConvGroup, [128]] # 6  P4/16  128x60x60
+  - [-1, 2, C3k2Ghost, [128, True]] # 7               128x60x60
+  - [-1, 1, SPPF, [128, 5]] # 8               128x60x60
+  - [-1, 1, C2PSA, [128]] # 9               128x60x60
+
+head:
+  # top-down
+  - [-1, 1, DySample, [128, 2]] # 10 P4 -> P3 size
+  - [[-1, 5], 1, BiFPNCat, [2]] # 11 128+128=256
+  - [-1, 1, C3k2Ghost, [96, False]] # 12 P3 intermediate (thinned 128 -> 96)
+  - [-1, 1, DySample, [96, 2]] # 13 P3 -> P2 size
+  - [[-1, 2], 1, BiFPNCat, [2]] # 14 96+64=160
+  - [-1, 1, C3k2Ghost, [48, False]] # 15 P2/4 out (thinned 64 -> 48, star's 32 was too thin)
+  - [-1, 1, ECA, [48]] # 16 cheap channel attention on P2 (small-object features)
+  # bottom-up
+  - [-1, 1, SPDConvGroup, [96]] # 17 P2 -> P3 size
+  - [[-1, 12], 1, BiFPNCat, [2]] # 18 96+96=192
+  - [-1, 1, C3k2Ghost, [96, False]] # 19 P3/8 out (thinned 128 -> 96)
+  - [-1, 1, SPDConvGroup, [128]] # 20 P3 -> P4 size
+  - [[-1, 9], 1, BiFPNCat, [2]] # 21 128+128=256
+  - [-1, 1, C3k2Ghost, [128, True]] # 22 P4/16 out
+
+  - [[16, 19, 22], 1, LSCDetect, [nc, 72]] # 23 shared-conv GN head, hidc=72 (48 x 1.5, hand-scaled)

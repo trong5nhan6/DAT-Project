@@ -1,0 +1,44 @@
+# LWSO-YOLO11s-eff — s-scale copy of cfg/lwso-yolo11n-eff.yaml (ultralytics picks the
+# scale from the "yolo11s" substring in the filename; channels below stay written at n
+# scale, multiplied by the s width factor at build time). Same convention as
+# cfg/lwso-yolo11s.yaml. Stock Detect head -> nothing needs hand-scaling.
+# See cfg/lwso-yolo11n-eff.yaml for the SPDConvGroup/ECA rationale.
+# Requires models.lwso.register_lwso() — done automatically via --idea lwso.
+
+nc: 10 # VisDrone classes
+
+scales: # [depth, width, max_channels]
+  n: [1.00, 1.00, 1024] # channels below are written for the n scale
+  s: [1.33, 1.50, 1024] # picked via the yolo11s filename substring
+
+backbone:
+  # [from, repeats, module, args]                    (shapes @ 960x960 input, n scale)
+  - [-1, 1, Conv, [16, 3, 2]] # 0  P1/2   16x480x480
+  - [-1, 1, SPDConvGroup, [32]] # 1  P2/4   32x240x240
+  - [-1, 2, C3k2Ghost, [64, False, 0.25]] # 2         64x240x240
+  - [-1, 1, SPDConvGroup, [64]] # 3  P3/8   64x120x120
+  - [-1, 2, C3k2Ghost, [128, False, 0.25]] # 4        128x120x120
+  - [-1, 1, EMA, [128]] # 5         128x120x120
+  - [-1, 1, SPDConvGroup, [128]] # 6  P4/16  128x60x60
+  - [-1, 2, C3k2Ghost, [128, True]] # 7               128x60x60
+  - [-1, 1, SPPF, [128, 5]] # 8               128x60x60
+  - [-1, 1, C2PSA, [128]] # 9               128x60x60
+
+head:
+  # top-down
+  - [-1, 1, DySample, [128, 2]] # 10 P4 -> P3 size
+  - [[-1, 5], 1, BiFPNCat, [2]] # 11 128+128=256
+  - [-1, 1, C3k2Ghost, [128, False]] # 12 P3 intermediate
+  - [-1, 1, DySample, [128, 2]] # 13 P3 -> P2 size
+  - [[-1, 2], 1, BiFPNCat, [2]] # 14 128+64=192
+  - [-1, 1, C3k2Ghost, [64, False]] # 15 P2/4 out (64x240x240)
+  - [-1, 1, ECA, [64]] # 16 cheap channel attention on P2 (small-object features)
+  # bottom-up
+  - [-1, 1, SPDConvGroup, [128]] # 17 P2 -> P3 size
+  - [[-1, 12], 1, BiFPNCat, [2]] # 18 128+128=256
+  - [-1, 1, C3k2Ghost, [128, False]] # 19 P3/8 out
+  - [-1, 1, SPDConvGroup, [128]] # 20 P3 -> P4 size
+  - [[-1, 9], 1, BiFPNCat, [2]] # 21 128+128=256
+  - [-1, 1, C3k2Ghost, [128, True]] # 22 P4/16 out
+
+  - [[16, 19, 22], 1, Detect, [nc]] # 23 Detect(P2, P3, P4) -- P2 tap is post-ECA
