@@ -1,6 +1,9 @@
 # Dataset (regenerate with data/scripts/convert_visdrone.py; VisDrone2019-DET is not ours to redistribute)
 datasets/
 results/
+final report/
+weights/
+
 # Training runs (weights, plots, csv logs) — reproducible from a run, not source
 runs/
 
