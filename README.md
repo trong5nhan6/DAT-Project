@@ -113,6 +113,44 @@ python train.py --idea pd        # cần runs/detect/lwso-n-eff/weights/best.pt 
 python val.py --weights runs/detect/lwso-n/weights/best.pt --split val
 ```
 
+## Demo trực quan (khi báo cáo)
+
+Hai công cụ, đều chỉ là lớp trình diễn (không đụng train/val), cùng dùng chung checkpoint
+trong `weights/` (5 model s-scale: baseline, lwso-eff, slim, fap-pruned, star) và bộ màu/
+hàm vẽ bbox trong `demo.py`:
+
+**1) `app.py` — GUI web (chiếu trực tiếp lúc thuyết trình):**
+
+```bash
+python app.py               # mở http://127.0.0.1:5000 trên trình duyệt (tự bật)
+```
+
+Một web app Flask nhỏ; frontend là `demo_ui.html` (backend chỉ gọi model, không đụng
+train/val). Chạy `python app.py` là mở đúng giao diện demo trên trình duyệt.
+
+- **Tab Ảnh**: chọn ảnh mẫu VisDrone val (hoặc tải ảnh lên) → chạy nhiều model một lúc →
+  xem bbox cạnh Ground-Truth + **bảng so sánh Params/GFLOPs/Latency/FPS đo trực tiếp** trên
+  checkpoint đang load (số s-scale, khác bảng n-scale ở mục "Kết quả"). Chỉnh được `conf`,
+  `imgsz`, bật/tắt GT.
+- **Tab Video**: **chọn thư mục frame** (duyệt thư mục ngay trên UI, mặc định mở ở
+  `datasets/.../sequences`; chọn được cả thư mục ngoài VisDrone-VID) → chạy các model →
+  ghép lưới model (số cột tự thích ứng theo số ô, không chèn ô trống), xuất video WebM để
+  phát ngay trên web/tải về. Cột Ground-Truth chỉ hiện khi thư mục
+  là một sequence VisDrone-VID có file annotation khớp tên.
+- Tự nhận thiết bị: chạy CUDA nếu có, không thì CPU (trên CPU latency cao là bình thường —
+  demo mượt nhất trên GPU). Model nạp 1 lần, chỉ số efficiency cache theo `(model, imgsz)`.
+- Cần dataset đã convert ở `datasets/VisDrone` (ảnh val) và `datasets/VisDrone2019-VID-val`
+  (cho tab Video); thiếu file nào thì UI báo, không crash.
+
+**2) `demo.py` — dựng sẵn ảnh/video grid tĩnh (đưa vào slide/báo cáo):**
+
+```bash
+python demo.py images --set 1                  # lưới 7 cột: Input | GT | 5 model
+python demo.py video --seq uav0000137_00458_v  # video lưới 2×3 GT + model
+```
+
+Kết quả ghi ra `final report/assets/demo/`.
+
 ## Cấu hình train (`configs/` + `models/`)
 
 `train.py` không hardcode hyperparameter hay kiến trúc — 2 tầng tách biệt:

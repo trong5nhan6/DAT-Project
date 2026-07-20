@@ -1,0 +1,1048 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LWSO-YOLO · VisDrone Demo</title>
+  <style>
+    :root {
+      --ground: #f6f8fb;
+      --panel: #fff;
+      --panel-2: #f0f3f8;
+      --border: #e0e5ee;
+      --border-strong: #cdd5e2;
+      --text: #182029;
+      --muted: #647089;
+      --accent: #0d97a8;
+      --accent-strong: #0a7784;
+      --accent-soft: #d7f0f3;
+      --good: #17924e;
+      --good-soft: #dcf2e4;
+      --shadow: 0 1px 2px rgba(20, 30, 45, .06), 0 8px 24px rgba(20, 30, 45, .06);
+      --radius: 10px;
+      --sans: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+      --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme:dark) {
+      :root {
+        --ground: #0e131a;
+        --panel: #161d27;
+        --panel-2: #1b2531;
+        --border: #26303d;
+        --border-strong: #33404f;
+        --text: #e5ebf3;
+        --muted: #91a0b4;
+        --accent: #29b7c8;
+        --accent-strong: #52cdda;
+        --accent-soft: #123037;
+        --good: #34c47a;
+        --good-soft: #0f2a1c;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+      }
+    }
+
+    :root[data-theme="light"] {
+      --ground: #f6f8fb;
+      --panel: #fff;
+      --panel-2: #f0f3f8;
+      --border: #e0e5ee;
+      --border-strong: #cdd5e2;
+      --text: #182029;
+      --muted: #647089;
+      --accent: #0d97a8;
+      --accent-strong: #0a7784;
+      --accent-soft: #d7f0f3;
+      --good: #17924e;
+      --good-soft: #dcf2e4;
+      --shadow: 0 1px 2px rgba(20, 30, 45, .06), 0 8px 24px rgba(20, 30, 45, .06);
+    }
+
+    :root[data-theme="dark"] {
+      --ground: #0e131a;
+      --panel: #161d27;
+      --panel-2: #1b2531;
+      --border: #26303d;
+      --border-strong: #33404f;
+      --text: #e5ebf3;
+      --muted: #91a0b4;
+      --accent: #29b7c8;
+      --accent-strong: #52cdda;
+      --accent-soft: #123037;
+      --good: #34c47a;
+      --good-soft: #0f2a1c;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--ground);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 22px 20px 60px;
+    }
+
+    .app {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+
+    .logo {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      flex: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .brand h1 {
+      font-size: 15.5px;
+      margin: 0;
+      letter-spacing: -.2px;
+    }
+
+    .brand p {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 1px 0 0;
+    }
+
+    .topbar .spacer {
+      flex: 1;
+    }
+
+    .badge {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border-strong);
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    .badge.gpu {
+      background: var(--good-soft);
+      color: var(--good);
+      border-color: transparent;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-2);
+    }
+
+    .tab {
+      appearance: none;
+      border: none;
+      background: none;
+      font: inherit;
+      cursor: pointer;
+      padding: 12px 16px;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 13.5px;
+      border-bottom: 2.5px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .tab[aria-selected="true"] {
+      color: var(--accent-strong);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      border-radius: 4px;
+    }
+
+    .body {
+      display: grid;
+      grid-template-columns: 264px 1fr;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: var(--panel-2);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .main {
+      padding: 20px;
+      min-width: 0;
+    }
+
+    .field label.lbl {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 7px;
+    }
+
+    .seg {
+      display: flex;
+      background: var(--panel);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .seg span {
+      flex: 1;
+      text-align: center;
+      font-size: 12.5px;
+      padding: 6px;
+      border-radius: 6px;
+      color: var(--muted);
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .seg span.on {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    select.select,
+    .fileinput {
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: var(--text);
+      font-family: var(--sans);
+    }
+
+    select.select {
+      appearance: none;
+      cursor: pointer;
+    }
+
+    .models {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .mrow {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .mrow.sel {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .chk {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1.5px solid var(--border-strong);
+      flex: none;
+      display: grid;
+      place-items: center;
+      color: #fff;
+    }
+
+    .mrow.sel .chk {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .chk svg {
+      width: 11px;
+      height: 11px;
+    }
+
+    .mrow .mname {
+      font-weight: 600;
+    }
+
+    .mrow .mmeta {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 5px;
+      border-radius: 3px;
+      background: var(--border-strong);
+      outline: none;
+      margin: 6px 0;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: var(--panel);
+      border: 2.5px solid var(--accent);
+      cursor: pointer;
+    }
+
+    input[type=range]::-moz-range-thumb {
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: var(--panel);
+      border: 2.5px solid var(--accent);
+      cursor: pointer;
+    }
+
+    .slider-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle {
+      width: 34px;
+      height: 19px;
+      border-radius: 12px;
+      background: var(--border-strong);
+      position: relative;
+      flex: none;
+      transition: background .15s;
+    }
+
+    .toggle.on {
+      background: var(--accent);
+    }
+
+    .toggle::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: #fff;
+      transition: left .15s;
+    }
+
+    .toggle.on::after {
+      left: 17px;
+    }
+
+    .btn {
+      width: 100%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      padding: 11px;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: .01em;
+    }
+
+    .btn:hover {
+      background: var(--accent-strong);
+    }
+
+    .btn:disabled {
+      opacity: .6;
+      cursor: progress;
+    }
+
+    .sec-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin: 0 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sec-title .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .muted-sm {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .grid2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .card .cap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12.5px;
+    }
+
+    .card .cap b {
+      font-weight: 700;
+    }
+
+    .card .cap .flag {
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: var(--good-soft);
+      color: var(--good);
+    }
+
+    .card img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .placeholder {
+      display: grid;
+      place-items: center;
+      padding: 40px 16px;
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px dashed var(--border-strong);
+      border-radius: var(--radius);
+      font-size: 13.5px;
+      text-align: center;
+    }
+
+    .tbl-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-top: 22px;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 12.5px;
+      min-width: 560px;
+    }
+
+    thead th {
+      text-align: right;
+      padding: 10px 14px;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    thead th:first-child,
+    tbody td:first-child {
+      text-align: left;
+    }
+
+    tbody td {
+      padding: 10px 14px;
+      text-align: right;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    tbody td:first-child {
+      font-family: var(--sans);
+      font-weight: 600;
+    }
+
+    tbody tr.hl {
+      background: var(--good-soft);
+    }
+
+    tbody tr.hl td:first-child::after {
+      content: "nhẹ nhất";
+      font-family: var(--sans);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--good);
+      margin-left: 8px;
+      background: var(--panel);
+      padding: 1px 6px;
+      border-radius: 8px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      margin-top: 18px;
+      padding: 12px 14px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 12px;
+    }
+
+    .legend .li {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+    }
+
+    .legend .li i {
+      width: 11px;
+      height: 11px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+
+    .pick-path {
+      background: var(--panel);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12.5px;
+      font-family: var(--mono);
+      color: var(--text);
+      cursor: pointer;
+      word-break: break-all;
+    }
+
+    .pick-path:hover {
+      border-color: var(--accent);
+    }
+
+    .browser {
+      margin-top: 8px;
+      background: var(--panel);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .crumb {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .crumb button {
+      background: var(--panel-2);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 3px 8px;
+      cursor: pointer;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .crumb #crumb-path {
+      word-break: break-all;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .dirlist {
+      max-height: 210px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .diritem {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      cursor: pointer;
+      color: var(--text);
+    }
+
+    .diritem:hover {
+      background: var(--accent-soft);
+    }
+
+    .diritem .fcount {
+      margin-left: auto;
+      font-size: 10.5px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    .diritem.empty {
+      color: var(--muted);
+      cursor: default;
+    }
+
+    .use-btn {
+      padding: 8px;
+      font-size: 12.5px;
+    }
+
+    .use-btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    .status {
+      margin-top: 12px;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    .status.err {
+      color: #d1435b;
+    }
+
+    video {
+      width: 100%;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: #000;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width:720px) {
+      .body {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .grid2 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="app">
+      <div class="topbar">
+        <div class="brand">
+          <div class="logo">Y</div>
+          <div>
+            <h1>VisDrone Small-Object Detection</h1>
+            <p>Demo so sánh 5 model theo độ chính xác &amp; độ nhẹ</p>
+          </div>
+        </div>
+        <div class="spacer"></div>
+        <span class="badge" id="devbadge">● …</span>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" id="tab-img" onclick="showTab('img')">🖼️ Ảnh</button>
+        <button class="tab" role="tab" aria-selected="false" id="tab-vid" onclick="showTab('vid')">🎬 Video</button>
+      </div>
+
+      <!-- ============ IMAGE TAB ============ -->
+      <div class="body" id="panel-img">
+        <aside class="sidebar">
+          <div class="field">
+            <label class="lbl">Nguồn ảnh</label>
+            <div class="seg" id="img-src"><span data-val="sample" class="on">Ảnh mẫu VisDrone</span><span
+                data-val="upload">Tải lên</span></div>
+          </div>
+          <div class="field" id="img-sample-field">
+            <label class="lbl">Chọn ảnh mẫu</label>
+            <select class="select" id="img-sample"></select>
+          </div>
+          <div class="field hidden" id="img-upload-field">
+            <label class="lbl">Ảnh (jpg/png)</label>
+            <input type="file" class="fileinput" id="img-upload" accept="image/*">
+          </div>
+          <div class="field">
+            <label class="lbl">Model chạy</label>
+            <div class="models" id="img-models"></div>
+          </div>
+          <div class="field">
+            <label class="lbl">Ngưỡng conf</label>
+            <input type="range" id="img-conf" min="0.05" max="0.9" step="0.05" value="0.25">
+            <div class="slider-row"><span>0.05</span><span id="img-conf-val">0.25</span><span>0.90</span></div>
+          </div>
+          <div class="field">
+            <label class="lbl">Kích thước ảnh</label>
+            <div class="seg" id="img-sz"><span data-val="640">640</span><span data-val="768">768</span><span
+                data-val="960" class="on">960</span></div>
+          </div>
+          <div class="field toggle-row" id="img-gt"><span class="toggle on"></span> Hiện Ground-Truth</div>
+          <button class="btn" id="img-run">▶ Chạy detect</button>
+        </aside>
+
+        <div class="main">
+          <div id="img-output">
+            <div class="placeholder">Chọn ảnh + model bên trái rồi bấm <b>&nbsp;Chạy detect</b>.</div>
+          </div>
+          <div class="legend" id="legend"></div>
+        </div>
+      </div>
+
+      <!-- ============ VIDEO TAB ============ -->
+      <div class="body hidden" id="panel-vid">
+        <aside class="sidebar">
+          <div class="field">
+            <label class="lbl">Thư mục video (frame)</label>
+            <div class="pick-path" id="pick-path" title="Bấm để chọn thư mục">— chưa chọn —</div>
+            <div class="browser hidden" id="browser">
+              <div class="crumb">
+                <button type="button" id="pick-up">⬆</button>
+                <span id="crumb-path" class="muted-sm"></span>
+              </div>
+              <div class="dirlist" id="dirlist"></div>
+              <button type="button" class="btn use-btn" id="pick-use">✓ Dùng thư mục này (<span
+                  id="pick-frames">0</span> frame)</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl">Model trong lưới</label>
+            <div class="models" id="vid-models"></div>
+          </div>
+          <div class="field">
+            <label class="lbl">Số frame</label>
+            <div class="seg" id="vid-n"><span data-val="100" class="on">100</span><span data-val="200">200</span><span
+                data-val="0">Tất cả</span></div>
+          </div>
+          <div class="field">
+            <label class="lbl">FPS xuất</label>
+            <div class="seg" id="vid-fps"><span data-val="15">15</span><span data-val="25" class="on">25</span><span
+                data-val="30">30</span></div>
+          </div>
+          <div class="field">
+            <label class="lbl">Kích thước ảnh</label>
+            <div class="seg" id="vid-sz"><span data-val="640">640</span><span data-val="768" class="on">768</span><span
+                data-val="960">960</span></div>
+          </div>
+          <div class="field">
+            <label class="lbl">Ngưỡng conf</label>
+            <input type="range" id="vid-conf" min="0.05" max="0.9" step="0.05" value="0.25">
+            <div class="slider-row"><span>0.05</span><span id="vid-conf-val">0.25</span><span>0.90</span></div>
+          </div>
+          <button class="btn" id="vid-run">🎬 Dựng video lưới</button>
+        </aside>
+
+        <div class="main">
+          <div id="vid-output">
+            <div class="placeholder">Chọn sequence + model bên trái rồi bấm <b>&nbsp;Dựng video lưới</b>.<br><span
+                class="muted-sm">Chạy trên CPU có thể mất 1–2 phút với 100 frame.</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CHECK = '<svg viewBox="0 0 12 12"><path d="M2 6l3 3 5-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+    const DEFAULT_IMG = ["Baseline (YOLO11-s)", "SLIM"];
+    let STATE = { device: "", models: [], samples: [], classes: [] };
+    let SELECTED_FOLDER = "";     // folder chosen for the video grid
+    let BROWSE_START = "";        // where the browser opens (VisDrone-VID sequences)
+    let BROWSE_CUR = null;        // last /api/browse payload
+
+    function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+    // ---- generic control wiring ----
+    function initSeg(id) {
+      document.querySelectorAll('#' + id + ' span').forEach(sp => sp.onclick = () => {
+        document.querySelectorAll('#' + id + ' span').forEach(x => x.classList.remove('on'));
+        sp.classList.add('on');
+        if (id === 'img-src') toggleSource();
+      });
+    }
+    function segVal(id) { const s = document.querySelector('#' + id + ' span.on'); return s ? s.dataset.val : null; }
+
+    function renderModels(containerId, defaults) {
+      const c = document.getElementById(containerId);
+      c.innerHTML = '';
+      STATE.models.forEach(m => {
+        const sel = defaults.includes(m.name);
+        const row = document.createElement('div');
+        row.className = 'mrow' + (sel ? ' sel' : '');
+        row.dataset.name = m.name;
+        row.innerHTML = `<span class="chk">${sel ? CHECK : ''}</span><span class="mname">${esc(m.name)}</span><span class="mmeta">${m.params_m}M</span>`;
+        row.onclick = () => {
+          const on = row.classList.toggle('sel');
+          row.querySelector('.chk').innerHTML = on ? CHECK : '';
+        };
+        c.appendChild(row);
+      });
+    }
+    function selectedModels(containerId) {
+      return [...document.querySelectorAll('#' + containerId + ' .mrow.sel')].map(r => r.dataset.name);
+    }
+
+    function showTab(which) {
+      const img = which === 'img';
+      document.getElementById('panel-img').classList.toggle('hidden', !img);
+      document.getElementById('panel-vid').classList.toggle('hidden', img);
+      document.getElementById('tab-img').setAttribute('aria-selected', img);
+      document.getElementById('tab-vid').setAttribute('aria-selected', !img);
+    }
+    function toggleSource() {
+      const sample = segVal('img-src') === 'sample';
+      document.getElementById('img-sample-field').classList.toggle('hidden', !sample);
+      document.getElementById('img-upload-field').classList.toggle('hidden', sample);
+    }
+
+    // ---- init ----
+    async function init() {
+      const r = await fetch('/api/init'); STATE = await r.json();
+      const bd = document.getElementById('devbadge');
+      bd.textContent = '● ' + STATE.device;
+      if (STATE.device === 'CUDA') bd.classList.add('gpu');
+
+      document.getElementById('img-sample').innerHTML =
+        STATE.samples.map(s => `<option>${esc(s)}</option>`).join('');
+
+      // video folder picker: preselect the first VisDrone-VID sequence, browse from vid_root
+      SELECTED_FOLDER = STATE.default_folder || '';
+      updatePickLabel();
+      BROWSE_START = STATE.vid_root || '';
+
+      renderModels('img-models', DEFAULT_IMG);
+      renderModels('vid-models', STATE.models.map(m => m.name)); // video: all selected
+
+      document.getElementById('legend').innerHTML = STATE.classes.map(c =>
+        `<span class="li"><i style="background:${c.color}"></i>${esc(c.name)}</span>`).join('');
+
+      ['img-src', 'img-sz', 'vid-n', 'vid-fps', 'vid-sz'].forEach(initSeg);
+      const ic = document.getElementById('img-conf'), il = document.getElementById('img-conf-val');
+      ic.oninput = () => il.textContent = (+ic.value).toFixed(2);
+      const vc = document.getElementById('vid-conf'), vl = document.getElementById('vid-conf-val');
+      vc.oninput = () => vl.textContent = (+vc.value).toFixed(2);
+      document.getElementById('img-gt').onclick = () => document.querySelector('#img-gt .toggle').classList.toggle('on');
+    }
+
+    function fileToDataURL(file) { return new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); }); }
+
+    // ---- folder picker (video tab) ----
+    function folderName(p) { if (!p) return '— chưa chọn —'; const parts = p.split(/[\\/]/); return parts[parts.length - 1] || p; }
+    function updatePickLabel() {
+      const el = document.getElementById('pick-path');
+      el.textContent = SELECTED_FOLDER ? '📁 ' + folderName(SELECTED_FOLDER) : '— chưa chọn —';
+      el.title = SELECTED_FOLDER || 'Bấm để chọn thư mục';
+    }
+    async function browse(path) {
+      const r = await fetch('/api/browse?path=' + encodeURIComponent(path || ''));
+      BROWSE_CUR = await r.json();
+      document.getElementById('crumb-path').textContent = BROWSE_CUR.path;
+      document.getElementById('pick-up').disabled = !BROWSE_CUR.parent;
+      const list = document.getElementById('dirlist');
+      const items = BROWSE_CUR.dirs.map(name =>
+        `<div class="diritem" data-name="${esc(name)}"><span>📁</span>${esc(name)}</div>`).join('');
+      list.innerHTML = items || '<div class="diritem empty">(không có thư mục con)</div>';
+      list.querySelectorAll('.diritem[data-name]').forEach(it => {
+        it.onclick = () => browse(BROWSE_CUR.path.replace(/[\\/]$/, '') + '/' + it.dataset.name);
+      });
+      const use = document.getElementById('pick-use');
+      document.getElementById('pick-frames').textContent = BROWSE_CUR.frames;
+      use.disabled = BROWSE_CUR.frames === 0;   // only a folder that actually holds frames
+    }
+    document.getElementById('pick-path').onclick = () => {
+      const b = document.getElementById('browser');
+      const opening = b.classList.contains('hidden');
+      b.classList.toggle('hidden');
+      if (opening) browse(SELECTED_FOLDER || BROWSE_START);
+    };
+    document.getElementById('pick-up').onclick = () => { if (BROWSE_CUR && BROWSE_CUR.parent) browse(BROWSE_CUR.parent); };
+    document.getElementById('pick-use').onclick = () => {
+      if (!BROWSE_CUR || BROWSE_CUR.frames === 0) return;
+      SELECTED_FOLDER = BROWSE_CUR.path;
+      updatePickLabel();
+      document.getElementById('browser').classList.add('hidden');
+    };
+
+    // ---- detect ----
+    document.getElementById('img-run').onclick = async function () {
+      const btn = this, out = document.getElementById('img-output');
+      const sel = selectedModels('img-models');
+      const payload = {
+        models: sel,
+        conf: parseFloat(document.getElementById('img-conf').value),
+        imgsz: parseInt(segVal('img-sz')),
+        show_gt: document.querySelector('#img-gt .toggle').classList.contains('on'),
+      };
+      if (segVal('img-src') === 'sample') {
+        payload.sample = document.getElementById('img-sample').value;
+      } else {
+        const f = document.getElementById('img-upload').files[0];
+        if (!f) { out.innerHTML = '<div class="status err">Chưa chọn ảnh tải lên.</div>'; return; }
+        payload.upload = await fileToDataURL(f); payload.name = f.name;
+      }
+      if (!sel.length) { out.innerHTML = '<div class="status err">Chọn ít nhất 1 model.</div>'; return; }
+
+      btn.disabled = true; btn.textContent = '⏳ Đang chạy…';
+      out.innerHTML = '<div class="status">Đang chạy inference ' + sel.length + ' model…</div>';
+      try {
+        const r = await fetch('/api/detect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const d = await r.json();
+        if (!r.ok) { out.innerHTML = '<div class="status err">' + esc(d.error || 'Lỗi') + '</div>'; return; }
+        renderDetect(out, d);
+      } catch (e) { out.innerHTML = '<div class="status err">' + esc(e.message) + '</div>'; }
+      finally { btn.disabled = false; btn.textContent = '▶  Chạy detect'; }
+    };
+
+    function renderDetect(out, d) {
+      const lightest = d.results.reduce((a, b) => b.params_m < a.params_m ? b : a, d.results[0]);
+      let html = '<h3 class="sec-title"><span class="dot"></span> Ảnh vào <span class="muted-sm">· ' + esc(d.caption) + '</span></h3><div class="grid2">';
+      html += card('Input', '<span class="muted-sm">ảnh gốc</span>', d.input);
+      if (d.gt) html += card('Ground Truth', '<span class="muted-sm">' + d.gt.count + ' boxes</span>', d.gt.img);
+      html += '</div>';
+
+      html += '<h3 class="sec-title" style="margin-top:24px"><span class="dot"></span> Kết quả theo model</h3><div class="grid2">';
+      d.results.forEach(m => {
+        let right = '<span class="muted-sm">' + m.det + ' det · ' + m.ms + ' ms</span>';
+        if (m === lightest && d.results.length > 1)
+          right = '<span style="display:flex;gap:8px;align-items:center"><span class="flag">nhẹ nhất</span>' + right + '</span>';
+        html += card(m.name, right, m.img);
+      });
+      html += '</div>';
+
+      html += '<h3 class="sec-title" style="margin-top:24px"><span class="dot"></span> So sánh (đo trực tiếp trên checkpoint)</h3>';
+      html += '<div class="tbl-wrap"><table><thead><tr><th>Model</th><th>Params (M)</th><th>GFLOPs @' + d.imgsz + '</th><th>Latency (ms)</th><th>FPS</th><th>#Det</th></tr></thead><tbody>';
+      d.results.forEach(m => {
+        html += '<tr class="' + (m === lightest && d.results.length > 1 ? 'hl' : '') + '"><td>' + esc(m.name) + '</td><td>' + m.params_m.toFixed(2) + '</td><td>' + m.gflops.toFixed(1) + '</td><td>' + m.latency_ms.toFixed(1) + '</td><td>' + m.fps.toFixed(0) + '</td><td>' + m.det + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+      html += '<p class="muted-sm" style="margin-top:9px">Params/GFLOPs/Latency/FPS đo thật lúc chạy (weights s-scale) — khác bảng n-scale trong README. Latency/FPS đo trên ' + STATE.device + ', đã warmup. Lưu ý: trên CPU model nhiều FLOPs hơn vẫn có thể nhanh hơn (conv chuẩn tối ưu tốt; module nhẹ tuỳ biến bị giới hạn băng thông bộ nhớ) — thứ tự này sẽ khác trên GPU.</p>';
+      out.innerHTML = html;
+    }
+    function card(title, right, imgSrc) {
+      return '<div class="card"><div class="cap"><b>' + esc(title) + '</b>' + right + '</div><img src="' + imgSrc + '" alt="' + esc(title) + '"></div>';
+    }
+
+    // ---- video ----
+    document.getElementById('vid-run').onclick = async function () {
+      const btn = this, out = document.getElementById('vid-output');
+      const sel = selectedModels('vid-models');
+      if (!SELECTED_FOLDER || !sel.length) { out.innerHTML = '<div class="status err">Cần chọn thư mục video và ít nhất 1 model.</div>'; return; }
+      const n = parseInt(segVal('vid-n'));
+      const payload = {
+        folder: SELECTED_FOLDER, models: sel, max_frames: n || null,
+        fps: parseInt(segVal('vid-fps')), imgsz: parseInt(segVal('vid-sz')),
+        conf: parseFloat(document.getElementById('vid-conf').value)
+      };
+
+      btn.disabled = true; btn.textContent = '⏳ Đang dựng…';
+      out.innerHTML = '<div class="status">Đang chạy inference + ghép grid… (có thể mất vài phút trên CPU)</div>';
+      try {
+        const r = await fetch('/api/video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const d = await r.json();
+        if (!r.ok) { out.innerHTML = '<div class="status err">' + esc(d.error || 'Lỗi') + '</div>'; return; }
+        out.innerHTML =
+          '<h3 class="sec-title"><span class="dot"></span> Lưới Ground-Truth + model <span class="muted-sm">· ' + d.frames + ' frame</span></h3>' +
+          '<video src="/api/video/' + d.token + '" controls autoplay muted loop></video>' +
+          '<p style="margin-top:12px"><a class="btn" style="display:inline-block;width:auto;padding:9px 18px;text-decoration:none" href="/api/video/' + d.token + '?dl=1">⤓ Tải video</a></p>' +
+          '<p class="muted-sm">Video WebM/VP8, phát trực tiếp trên trình duyệt. Bấm ⤓ để tải về nếu cần.</p>';
+      } catch (e) { out.innerHTML = '<div class="status err">' + esc(e.message) + '</div>'; }
+      finally { btn.disabled = false; btn.textContent = '🎬  Dựng video lưới'; }
+    };
+
+    init();
+  </script>
+</body>
+
+</html>

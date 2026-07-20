@@ -6,6 +6,7 @@ opencv-python>=4.6
 pillow
 pytest
 omegaconf>=2.3   # configs/base.yaml + configs/<idea>.yaml merging in train.py
+flask>=3.0       # app.py — report demo web GUI (python app.py); not needed for train/val
 
 # stage-3 compression (M6) — uncomment when you reach it
 # torch-pruning>=1.6  # prune_structured.py only — EXPERIMENTAL, tp<=1.6.1 breaks on this
