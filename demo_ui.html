@@ -562,15 +562,25 @@
     }
 
     .legend {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 50;
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px 14px;
-      margin-top: 18px;
+      flex-direction: column;
+      gap: 7px;
+      max-height: 72vh;
+      overflow: auto;
       padding: 12px 14px;
       background: var(--panel-2);
       border: 1px solid var(--border);
       border-radius: var(--radius);
+      box-shadow: var(--shadow);
       font-size: 12px;
+    }
+
+    .legend:empty {
+      display: none;
     }
 
     .legend .li {
@@ -928,12 +938,14 @@
     async function browse(path) {
       const r = await fetch('/api/browse?path=' + encodeURIComponent(path || ''));
       BROWSE_CUR = await r.json();
-      document.getElementById('crumb-path').textContent = BROWSE_CUR.path;
+      const crumb = document.getElementById('crumb-path');
+      crumb.textContent = folderName(BROWSE_CUR.path);
+      crumb.title = BROWSE_CUR.path;
       document.getElementById('pick-up').disabled = !BROWSE_CUR.parent;
       const list = document.getElementById('dirlist');
       const items = BROWSE_CUR.dirs.map(name =>
         `<div class="diritem" data-name="${esc(name)}"><span>📁</span>${esc(name)}</div>`).join('');
-      list.innerHTML = items || '<div class="diritem empty">(không có thư mục con)</div>';
+      list.innerHTML = items || '';
       list.querySelectorAll('.diritem[data-name]').forEach(it => {
         it.onclick = () => browse(BROWSE_CUR.path.replace(/[\\/]$/, '') + '/' + it.dataset.name);
       });
